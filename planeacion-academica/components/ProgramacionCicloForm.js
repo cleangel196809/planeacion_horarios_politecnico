@@ -186,7 +186,11 @@ export default function ProgramacionCicloForm({
   const estadoActivo = estadoPorJornada[jornadaActiva] || estadoJornadaVacio();
   const jornadaInfo = JORNADAS.find((j) => j.value === jornadaActiva);
   const diasVisibles =
-    jornadaActiva === "SABADO" ? DIAS.filter((d) => d.value === "SABADO") : DIAS;
+    jornadaActiva === "SABADO"
+      ? DIAS.filter((d) => d.value === "SABADO")
+      : jornadaActiva === "NOCHE"
+      ? DIAS.filter((d) => d.value !== "SABADO") // Noche es de lunes a viernes, 6:00 p.m. a 9:00 p.m.
+      : DIAS;
 
   function actualizarEstadoActivo(fn) {
     setEstadoPorJornada((prev) => {
