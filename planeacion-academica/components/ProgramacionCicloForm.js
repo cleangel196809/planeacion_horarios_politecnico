@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { SEDES, JORNADAS, DIAS, BLOQUES_HORARIO } from "@/lib/constants";
+import { SEDES, JORNADAS, DIAS } from "@/lib/constants";
 
-// Color de referencia por jornada, solo para la interfaz (chips, cuadrícula
-// resumen semanal). No se guarda en la base de datos.
+// Color de referencia por jornada, solo para la interfaz (chips, resumen).
+// No se guarda en la base de datos.
 const COLOR_JORNADA = {
   DIURNA: "#2563eb",
   ESPECIAL: "#7c3aed",
@@ -14,13 +14,6 @@ const COLOR_JORNADA = {
 };
 function colorJornada(v) {
   return COLOR_JORNADA[v] || "#6b7280";
-}
-
-function claveBloque(b) {
-  return `${b.horaInicio}-${b.horaFin}`;
-}
-function claveCelda(dia, claveB) {
-  return `${dia}|${claveB}`;
 }
 
 function labelSede(v) {
@@ -33,28 +26,61 @@ function labelDia(v) {
   return DIAS.find((d) => d.value === v)?.corto || v;
 }
 
-// ¿Este bloque cae dentro del rango horario típico de la jornada? Se usa
-// solo para sugerir visualmente (recuadro punteado) dónde marcar, nunca para
-// restringir: el decano puede marcar cualquier celda igual.
-function bloqueSugerido(jornadaValue, bloque) {
+// Días visibles para cada jornada: Sabatina solo Sábado; Noche es de lunes a
+// viernes (6:00 p.m. a 9:00 p.m., sin fin de semana); el resto, toda la semana.
+function diasVisiblesPara(jornadaValue) {
+  if (jornadaValue === "SABADO") return DIAS.filter((d) => d.value === "SABADO");
+  if (jornadaValue === "NOCHE") return DIAS.filter((d) => d.value !== "SABADO");
+  return DIAS;
+}
+
+// Horario sugerido con el que se precarga un día al marcarlo, tomado de la
+// jornada (o de su primera franja sugerida, en el caso de Sabatina).
+function horarioSugerido(jornadaValue) {
   const j = JORNADAS.find((x) => x.value === jornadaValue);
-  if (!j) return false;
-  const rangos = j.opciones && j.opciones.length > 0 ? j.opciones : j.horaInicio ? [j] : [];
-  return rangos.some((r) => bloque.horaInicio >= r.horaInicio && bloque.horaInicio < r.horaFin);
+  if (!j) return { hora_inicio: "", hora_fin: "" };
+  if (j.opciones && j.opciones.length > 0) {
+    return { hora_inicio: j.opciones[0].horaInicio, hora_fin: j.opciones[0].horaFin };
+  }
+  return { hora_inicio: j.horaInicio || "", hora_fin: j.horaFin || "" };
 }
 
-function estadoJornadaVacio() {
-  return { sedes: new Set(), celdas: new Set() };
+// Reconstruye el estado de edición (sedes → jornadas → días/horario) de una
+// materia a partir de los grupos ya guardados en planeacion, para que al abrir
+// el acordeón se vea tal cual quedó la última vez.
+function construirConfigDesdeGrupos(grupos) {
+  const sedes = new Set();
+  const porSede = {};
+  for (const g of grupos || []) {
+    if (!g.modalidad || !g.jornada) continue;
+    sedes.add(g.modalidad);
+    if (!porSede[g.modalidad]) porSede[g.modalidad] = { jornadas: new Set(), porJornada: {} };
+    porSede[g.modalidad].jornadas.add(g.jornada);
+    const dias = new Set();
+    const horarioPorDia = {};
+    for (const h of g.horarios || []) {
+      dias.add(h.dia);
+      horarioPorDia[h.dia] = { hora_inicio: h.hora_inicio || "", hora_fin: h.hora_fin || "" };
+    }
+    // Si ya existía una jornada con esta misma clave (fila duplicada), se
+    // conserva la primera y la segunda se ignora aquí (se limpia al guardar).
+    if (!porSede[g.modalidad].porJornada[g.jornada]) {
+      porSede[g.modalidad].porJornada[g.jornada] = { dias, horarioPorDia };
+    }
+  }
+  return { sedes, porSede };
 }
 
-// Paso 2 de la captura: "Programación del ciclo". Dado el programa/plan/
-// periodo ya elegidos en el paso 1, el decano escoge un ciclo de formación y
-// arma la programación por jornada: cada jornada (Diurna, Especial, Noche,
-// Sabatina, Virtual) tiene su propia cuadrícula semanal de días × bloques de
-// horario de 1:30, en vez de compartir un único horario entre todas las
-// jornadas marcadas. "Aplicar esta jornada" reemplaza la programación previa
-// de esa jornada para las materias marcadas (las demás jornadas de esas
-// materias no se tocan).
+function configVacia() {
+  return { sedes: new Set(), porSede: {} };
+}
+
+// Paso 2 de la captura: "Programación del ciclo". El decano elige un ciclo de
+// formación y, materia por materia, arma su programación en cascada: sede(s)
+// → jornada(s) de esa sede → días de la semana con su franja horaria. Cada
+// materia se guarda por separado y solo toca sus propios grupos (sede+jornada);
+// no borra el docente/salón/grupo que ya se hubiera cargado desde "Agregar
+// grupo" para esa misma combinación, salvo que se quite del todo.
 export default function ProgramacionCicloForm({
   facultad,
   programa,
@@ -67,21 +93,15 @@ export default function ProgramacionCicloForm({
   const [planeacionPorCatalogo, setPlaneacionPorCatalogo] = useState({});
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState("");
-  const [mensaje, setMensaje] = useState("");
-  const [guardando, setGuardando] = useState(false);
 
   const [cicloSeleccionado, setCicloSeleccionado] = useState("");
   const [busquedaMateria, setBusquedaMateria] = useState("");
-  const [materiasSeleccionadas, setMateriasSeleccionadas] = useState(new Set());
 
-  const [jornadaActiva, setJornadaActiva] = useState(JORNADAS[0].value);
-  const [estadoPorJornada, setEstadoPorJornada] = useState(() => {
-    const inicial = {};
-    for (const j of JORNADAS) inicial[j.value] = estadoJornadaVacio();
-    return inicial;
-  });
-
-  const [vista, setVista] = useState("resumen"); // "resumen" | "semana"
+  const [materiaExpandida, setMateriaExpandida] = useState(null);
+  const [configPorMateria, setConfigPorMateria] = useState({});
+  const [guardandoMateria, setGuardandoMateria] = useState(null);
+  const [errorPorMateria, setErrorPorMateria] = useState({});
+  const [mensajePorMateria, setMensajePorMateria] = useState({});
 
   async function cargarDatos() {
     setCargando(true);
@@ -117,10 +137,7 @@ export default function ProgramacionCicloForm({
   }, [periodo]);
 
   const materiasDelPrograma = useMemo(
-    () =>
-      catalogo.filter(
-        (c) => c.programa === programa && (c.plan || "Sin plan") === plan
-      ),
+    () => catalogo.filter((c) => c.programa === programa && (c.plan || "Sin plan") === plan),
     [catalogo, programa, plan]
   );
 
@@ -145,9 +162,7 @@ export default function ProgramacionCicloForm({
 
   const materiasDelCiclo = useMemo(() => {
     if (!cicloSeleccionado) return [];
-    return materiasDelPrograma.filter(
-      (c) => String(c.ciclo || "Sin ciclo") === cicloSeleccionado
-    );
+    return materiasDelPrograma.filter((c) => String(c.ciclo || "Sin ciclo") === cicloSeleccionado);
   }, [materiasDelPrograma, cicloSeleccionado]);
 
   const materiasFiltradas = useMemo(() => {
@@ -158,242 +173,215 @@ export default function ProgramacionCicloForm({
 
   function elegirCiclo(c) {
     setCicloSeleccionado(c);
-    setMateriasSeleccionadas(new Set());
     setBusquedaMateria("");
-    const inicial = {};
-    for (const j of JORNADAS) inicial[j.value] = estadoJornadaVacio();
-    setEstadoPorJornada(inicial);
-    setJornadaActiva(JORNADAS[0].value);
-    setMensaje("");
-    setError("");
+    setMateriaExpandida(null);
   }
 
-  function toggleEnSet(set, setter, valor) {
-    setter((prev) => {
-      const next = new Set(prev);
-      if (next.has(valor)) next.delete(valor);
-      else next.add(valor);
-      return next;
-    });
+  // Resumen (badges) de lo ya guardado para una materia: una entrada por cada
+  // combinación sede+jornada con grupo creado.
+  function resumenMateria(materiaId) {
+    const grupos = planeacionPorCatalogo[materiaId] || [];
+    const porClave = new Map();
+    for (const g of grupos) {
+      if (!g.modalidad || !g.jornada) continue;
+      const clave = `${g.modalidad}|${g.jornada}`;
+      if (!porClave.has(clave)) {
+        porClave.set(clave, { sede: g.modalidad, jornada: g.jornada, dias: new Set() });
+      }
+      for (const h of g.horarios || []) porClave.get(clave).dias.add(h.dia);
+    }
+    return [...porClave.values()].map((r) => ({
+      ...r,
+      diasTexto: [...r.dias].map(labelDia).join(", ")
+    }));
   }
 
-  function marcarTodasMaterias(marcar) {
-    setMateriasSeleccionadas(
-      marcar ? new Set(materiasFiltradas.map((m) => m.id)) : new Set()
-    );
-  }
-
-  const estadoActivo = estadoPorJornada[jornadaActiva] || estadoJornadaVacio();
-  const jornadaInfo = JORNADAS.find((j) => j.value === jornadaActiva);
-  const diasVisibles =
-    jornadaActiva === "SABADO"
-      ? DIAS.filter((d) => d.value === "SABADO")
-      : jornadaActiva === "NOCHE"
-      ? DIAS.filter((d) => d.value !== "SABADO") // Noche es de lunes a viernes, 6:00 p.m. a 9:00 p.m.
-      : DIAS;
-
-  function actualizarEstadoActivo(fn) {
-    setEstadoPorJornada((prev) => {
-      const actual = prev[jornadaActiva] || estadoJornadaVacio();
-      const nuevoSet = fn(actual);
-      return { ...prev, [jornadaActiva]: nuevoSet };
-    });
-  }
-
-  function toggleSede(valor) {
-    actualizarEstadoActivo((actual) => {
-      const sedes = new Set(actual.sedes);
-      sedes.has(valor) ? sedes.delete(valor) : sedes.add(valor);
-      return { ...actual, sedes };
-    });
-  }
-
-  function toggleCelda(dia, claveB) {
-    actualizarEstadoActivo((actual) => {
-      const celdas = new Set(actual.celdas);
-      const key = claveCelda(dia, claveB);
-      celdas.has(key) ? celdas.delete(key) : celdas.add(key);
-      return { ...actual, celdas };
-    });
-  }
-
-  function toggleFila(bloque) {
-    const claveB = claveBloque(bloque);
-    actualizarEstadoActivo((actual) => {
-      const todasOn = diasVisibles.every((d) => actual.celdas.has(claveCelda(d.value, claveB)));
-      const celdas = new Set(actual.celdas);
-      diasVisibles.forEach((d) => {
-        const key = claveCelda(d.value, claveB);
-        todasOn ? celdas.delete(key) : celdas.add(key);
-      });
-      return { ...actual, celdas };
-    });
-  }
-
-  function toggleColumna(dia) {
-    actualizarEstadoActivo((actual) => {
-      const todasOn = BLOQUES_HORARIO.every((b) =>
-        actual.celdas.has(claveCelda(dia, claveBloque(b)))
-      );
-      const celdas = new Set(actual.celdas);
-      BLOQUES_HORARIO.forEach((b) => {
-        const key = claveCelda(dia, claveBloque(b));
-        todasOn ? celdas.delete(key) : celdas.add(key);
-      });
-      return { ...actual, celdas };
-    });
-  }
-
-  function limpiarJornadaActiva() {
-    setEstadoPorJornada((prev) => ({ ...prev, [jornadaActiva]: estadoJornadaVacio() }));
-  }
-
-  const celdasActivasOrdenadas = useMemo(() => {
-    const idxDia = {};
-    DIAS.forEach((d, i) => (idxDia[d.value] = i));
-    return [...estadoActivo.celdas]
-      .map((k) => {
-        const [dia, claveB] = k.split("|");
-        const bloque = BLOQUES_HORARIO.find((b) => claveBloque(b) === claveB);
-        return { dia, bloque };
-      })
-      .filter((c) => c.bloque)
-      .sort(
-        (a, b) => idxDia[a.dia] - idxDia[b.dia] || a.bloque.horaInicio.localeCompare(b.bloque.horaInicio)
-      );
-  }, [estadoActivo]);
-
-  const listoParaAplicar =
-    materiasSeleccionadas.size > 0 && estadoActivo.sedes.size > 0 && estadoActivo.celdas.size > 0;
-
-  let notaAplicar = "";
-  if (materiasSeleccionadas.size === 0) notaAplicar = "Marca al menos una materia de la lista.";
-  else if (estadoActivo.sedes.size === 0) notaAplicar = "Elige al menos una sede para esta jornada.";
-  else if (estadoActivo.celdas.size === 0) notaAplicar = "Marca al menos una celda en la cuadrícula.";
-  else
-    notaAplicar = `Se aplicará a ${materiasSeleccionadas.size} materia${materiasSeleccionadas.size === 1 ? "" : "s"}: ${estadoActivo.sedes.size} sede${estadoActivo.sedes.size === 1 ? "" : "s"} · ${estadoActivo.celdas.size} franja${estadoActivo.celdas.size === 1 ? "" : "s"} horaria${estadoActivo.celdas.size === 1 ? "" : "s"}.`;
-
-  async function aplicarJornada() {
-    if (!listoParaAplicar) {
-      setError(notaAplicar);
+  function abrirMateria(materiaId) {
+    if (materiaExpandida === materiaId) {
+      setMateriaExpandida(null);
       return;
     }
-    setError("");
-    setMensaje("");
-    setGuardando(true);
-
-    const horarios = celdasActivasOrdenadas.map((c) => ({
-      dia: c.dia,
-      hora_inicio: c.bloque.horaInicio,
-      hora_fin: c.bloque.horaFin,
-      salon: null
+    setMateriaExpandida(materiaId);
+    setConfigPorMateria((prev) => ({
+      ...prev,
+      [materiaId]: construirConfigDesdeGrupos(planeacionPorCatalogo[materiaId] || [])
     }));
-    const sedesElegidas = [...estadoActivo.sedes];
-    const materiasElegidas = [...materiasSeleccionadas];
+    setErrorPorMateria((prev) => ({ ...prev, [materiaId]: "" }));
+    setMensajePorMateria((prev) => ({ ...prev, [materiaId]: "" }));
+  }
 
-    const fallidos = [];
+  function actualizarConfig(materiaId, fn) {
+    setConfigPorMateria((prev) => ({
+      ...prev,
+      [materiaId]: fn(prev[materiaId] || configVacia())
+    }));
+  }
+
+  function toggleSede(materiaId, sede) {
+    actualizarConfig(materiaId, (cfg) => {
+      const sedes = new Set(cfg.sedes);
+      const porSede = { ...cfg.porSede };
+      if (sedes.has(sede)) {
+        sedes.delete(sede);
+        delete porSede[sede];
+      } else {
+        sedes.add(sede);
+        porSede[sede] = porSede[sede] || { jornadas: new Set(), porJornada: {} };
+      }
+      return { sedes, porSede };
+    });
+  }
+
+  function toggleJornada(materiaId, sede, jornada) {
+    actualizarConfig(materiaId, (cfg) => {
+      const sedeCfg = cfg.porSede[sede] || { jornadas: new Set(), porJornada: {} };
+      const jornadas = new Set(sedeCfg.jornadas);
+      const porJornada = { ...sedeCfg.porJornada };
+      if (jornadas.has(jornada)) {
+        jornadas.delete(jornada);
+        delete porJornada[jornada];
+      } else {
+        jornadas.add(jornada);
+        porJornada[jornada] = porJornada[jornada] || { dias: new Set(), horarioPorDia: {} };
+      }
+      return { ...cfg, porSede: { ...cfg.porSede, [sede]: { jornadas, porJornada } } };
+    });
+  }
+
+  function toggleDia(materiaId, sede, jornada, dia) {
+    actualizarConfig(materiaId, (cfg) => {
+      const sedeCfg = cfg.porSede[sede];
+      if (!sedeCfg) return cfg;
+      const jc = sedeCfg.porJornada[jornada] || { dias: new Set(), horarioPorDia: {} };
+      const dias = new Set(jc.dias);
+      const horarioPorDia = { ...jc.horarioPorDia };
+      if (dias.has(dia)) {
+        dias.delete(dia);
+      } else {
+        dias.add(dia);
+        if (!horarioPorDia[dia]) horarioPorDia[dia] = horarioSugerido(jornada);
+      }
+      return {
+        ...cfg,
+        porSede: {
+          ...cfg.porSede,
+          [sede]: { ...sedeCfg, porJornada: { ...sedeCfg.porJornada, [jornada]: { dias, horarioPorDia } } }
+        }
+      };
+    });
+  }
+
+  function actualizarHorarioDia(materiaId, sede, jornada, dia, campo, valor) {
+    actualizarConfig(materiaId, (cfg) => {
+      const sedeCfg = cfg.porSede[sede];
+      if (!sedeCfg) return cfg;
+      const jc = sedeCfg.porJornada[jornada];
+      if (!jc) return cfg;
+      const horarioPorDia = {
+        ...jc.horarioPorDia,
+        [dia]: { ...(jc.horarioPorDia[dia] || {}), [campo]: valor }
+      };
+      return {
+        ...cfg,
+        porSede: {
+          ...cfg.porSede,
+          [sede]: { ...sedeCfg, porJornada: { ...sedeCfg.porJornada, [jornada]: { ...jc, horarioPorDia } } }
+        }
+      };
+    });
+  }
+
+  async function guardarMateria(materiaId) {
+    const cfg = configPorMateria[materiaId] || configVacia();
+    setGuardandoMateria(materiaId);
+    setErrorPorMateria((prev) => ({ ...prev, [materiaId]: "" }));
+    setMensajePorMateria((prev) => ({ ...prev, [materiaId]: "" }));
+
     try {
-      for (const catalogoId of materiasElegidas) {
-        // Reemplaza solo los grupos de ESTA jornada para esta materia; los
-        // grupos de otras jornadas de la misma materia quedan intactos, para
-        // poder combinar por ejemplo Diurna y Noche en la misma asignatura.
-        const existentes = (planeacionPorCatalogo[catalogoId] || []).filter(
-          (g) => g.jornada === jornadaActiva
-        );
-        for (const g of existentes) {
+      // Combinaciones sede+jornada que el decano quiere que existan, con sus
+      // días/horas (se ignoran las jornadas activas sin ningún día marcado).
+      const deseados = [];
+      for (const sede of cfg.sedes) {
+        const sedeCfg = cfg.porSede[sede];
+        if (!sedeCfg) continue;
+        for (const jornada of sedeCfg.jornadas) {
+          const jc = sedeCfg.porJornada[jornada];
+          if (!jc || jc.dias.size === 0) continue;
+          const horarios = [...jc.dias].map((dia) => ({
+            dia,
+            hora_inicio: jc.horarioPorDia[dia]?.hora_inicio || "",
+            hora_fin: jc.horarioPorDia[dia]?.hora_fin || "",
+            salon: null
+          }));
+          deseados.push({ sede, jornada, horarios });
+        }
+      }
+
+      const clave = (s, j) => `${s}||${j}`;
+      const deseadosPorClave = new Map(deseados.map((d) => [clave(d.sede, d.jornada), d]));
+
+      const existentes = planeacionPorCatalogo[materiaId] || [];
+      const existentesPorClave = new Map();
+      const extras = [];
+      for (const g of existentes) {
+        if (!g.modalidad || !g.jornada) continue;
+        const k = clave(g.modalidad, g.jornada);
+        if (existentesPorClave.has(k)) extras.push(g);
+        else existentesPorClave.set(k, g);
+      }
+
+      // Borra los grupos que ya no están marcados, y los duplicados sobrantes.
+      for (const [k, g] of existentesPorClave) {
+        if (!deseadosPorClave.has(k)) {
           await fetch(`/api/planeacion/${g.id}`, { method: "DELETE" });
         }
+      }
+      for (const g of extras) {
+        await fetch(`/api/planeacion/${g.id}`, { method: "DELETE" });
+      }
 
-        for (const sede of sedesElegidas) {
+      // Crea los grupos nuevos y actualiza SOLO el horario de los que ya
+      // existían (conserva docente, grupo, salón, moodle, estado, etc.).
+      for (const [k, d] of deseadosPorClave) {
+        const existente = existentesPorClave.get(k);
+        if (existente) {
+          const res = await fetch(`/api/planeacion/${existente.id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ horarios: d.horarios })
+          });
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            throw new Error(data.error || "No se pudo actualizar el horario.");
+          }
+        } else {
           const res = await fetch("/api/planeacion", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              catalogo_id: catalogoId,
+              catalogo_id: materiaId,
               periodo,
-              modalidad: sede,
-              jornada: jornadaActiva,
-              horarios
+              modalidad: d.sede,
+              jornada: d.jornada,
+              horarios: d.horarios
             })
           });
           if (!res.ok) {
             const data = await res.json().catch(() => ({}));
-            fallidos.push(data.error || `Error programando (id ${catalogoId})`);
+            throw new Error(data.error || "No se pudo crear el grupo.");
           }
         }
       }
 
       await cargarDatos();
       await onCreated?.(periodo);
-
-      setMensaje(
-        `${labelJornada(jornadaActiva)} aplicada a ${materiasElegidas.length} materia${materiasElegidas.length === 1 ? "" : "s"}.`
-      );
-      setMateriasSeleccionadas(new Set());
-      if (fallidos.length > 0) {
-        setError(`Algunas asignaciones fallaron: ${fallidos.join(" / ")}`);
-      }
+      setMensajePorMateria((prev) => ({ ...prev, [materiaId]: "Programación guardada." }));
+    } catch (err) {
+      setErrorPorMateria((prev) => ({ ...prev, [materiaId]: err.message }));
     } finally {
-      setGuardando(false);
+      setGuardandoMateria(null);
     }
   }
-
-  async function quitarAsignacion(catalogoId, jornadaValue) {
-    const existentes = (planeacionPorCatalogo[catalogoId] || []).filter(
-      (g) => g.jornada === jornadaValue
-    );
-    if (existentes.length === 0) return;
-    if (!confirm(`¿Quitar la programación de ${labelJornada(jornadaValue)} para esta materia?`)) return;
-    for (const g of existentes) {
-      await fetch(`/api/planeacion/${g.id}`, { method: "DELETE" });
-    }
-    await cargarDatos();
-    await onCreated?.(periodo);
-  }
-
-  // Una fila por cada combinación materia + jornada que tenga grupos creados
-  // (antes se mezclaban todas las jornadas de una materia en una sola fila).
-  const filasAsignadas = useMemo(() => {
-    const filas = [];
-    for (const item of materiasDelCiclo) {
-      const grupos = planeacionPorCatalogo[item.id] || [];
-      const porJornada = new Map();
-      for (const g of grupos) {
-        const key = g.jornada || "Sin jornada";
-        if (!porJornada.has(key)) porJornada.set(key, []);
-        porJornada.get(key).push(g);
-      }
-      for (const [jornadaValue, gruposJornada] of porJornada) {
-        const sedes = [...new Set(gruposJornada.map((g) => g.modalidad).filter(Boolean))];
-        const bloques = [
-          ...new Set(
-            gruposJornada.flatMap((g) =>
-              (g.horarios || []).map((h) => `${labelDia(h.dia)} ${h.hora_inicio}–${h.hora_fin}`)
-            )
-          )
-        ].sort();
-        filas.push({ item, jornada: jornadaValue, sedes, bloques });
-      }
-    }
-    return filas;
-  }, [materiasDelCiclo, planeacionPorCatalogo]);
-
-  // Todos los horarios ya asignados en el ciclo, para la vista semanal
-  // consolidada (coloreada por jornada).
-  const celdasSemana = useMemo(() => {
-    const mapa = new Map(); // "DIA|horaInicio" -> [{materia, jornada}]
-    for (const item of materiasDelCiclo) {
-      const grupos = planeacionPorCatalogo[item.id] || [];
-      for (const g of grupos) {
-        for (const h of g.horarios || []) {
-          const key = `${h.dia}|${h.hora_inicio}`;
-          if (!mapa.has(key)) mapa.set(key, []);
-          mapa.get(key).push({ materia: item.asignatura, jornada: g.jornada });
-        }
-      }
-    }
-    return mapa;
-  }, [materiasDelCiclo, planeacionPorCatalogo]);
 
   return (
     <div>
@@ -449,373 +437,223 @@ export default function ProgramacionCicloForm({
           </div>
 
           {cicloSeleccionado && (
-            <div className="grid sm:grid-cols-[240px_1fr] gap-5">
-              {/* Columna materias */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-xs font-semibold text-brand-600 tracking-wide">
-                    MATERIAS DEL CICLO
-                  </p>
-                  <button
-                    className="text-xs text-brand-600 font-medium"
-                    onClick={() =>
-                      marcarTodasMaterias(
-                        !materiasFiltradas.every((m) => materiasSeleccionadas.has(m.id)) ||
-                          materiasFiltradas.length === 0
-                      )
-                    }
-                  >
-                    Seleccionar todas
-                  </button>
-                </div>
-                <input
-                  className="input mb-2 text-sm"
-                  placeholder="Buscar materia..."
-                  value={busquedaMateria}
-                  onChange={(e) => setBusquedaMateria(e.target.value)}
-                />
-                <div className="space-y-2 max-h-[520px] overflow-y-auto pr-1">
-                  {materiasFiltradas.map((item) => {
-                    const jornadasAsignadas = [
-                      ...new Set((planeacionPorCatalogo[item.id] || []).map((g) => g.jornada).filter(Boolean))
-                    ];
-                    return (
-                      <label
-                        key={item.id}
-                        className={`flex items-start gap-2 text-sm p-2 rounded-lg border cursor-pointer ${
-                          materiasSeleccionadas.has(item.id)
-                            ? "border-brand-300 bg-brand-50"
-                            : "border-gray-200 hover:bg-gray-50"
-                        }`}
+            <div>
+              <input
+                className="input mb-3 max-w-md"
+                placeholder="Buscar materia..."
+                value={busquedaMateria}
+                onChange={(e) => setBusquedaMateria(e.target.value)}
+              />
+
+              <div className="space-y-2">
+                {materiasFiltradas.map((item) => {
+                  const expandida = materiaExpandida === item.id;
+                  const resumen = resumenMateria(item.id);
+                  const cfg = configPorMateria[item.id] || configVacia();
+                  const guardando = guardandoMateria === item.id;
+                  const errorM = errorPorMateria[item.id];
+                  const mensajeM = mensajePorMateria[item.id];
+
+                  return (
+                    <div key={item.id} className="card p-4">
+                      <div
+                        className="flex flex-wrap items-start justify-between gap-2 cursor-pointer"
+                        onClick={() => abrirMateria(item.id)}
                       >
-                        <input
-                          type="checkbox"
-                          className="accent-brand-600 mt-0.5"
-                          checked={materiasSeleccionadas.has(item.id)}
-                          onChange={() =>
-                            toggleEnSet(materiasSeleccionadas, setMateriasSeleccionadas, item.id)
-                          }
-                        />
-                        <span className="flex-1">
-                          <span className="block text-gray-900">{item.asignatura}</span>
-                          <span className="block text-xs text-gray-400">
-                            {item.creditos ?? "—"} créditos
-                          </span>
-                          {jornadasAsignadas.length > 0 && (
-                            <span className="flex flex-wrap gap-1 mt-1">
-                              {jornadasAsignadas.map((j) => (
+                        <div>
+                          <p className="font-medium text-gray-900">{item.asignatura}</p>
+                          <p className="text-xs text-gray-400 mb-1">{item.creditos ?? "—"} créditos</p>
+                          {resumen.length > 0 && (
+                            <div className="flex flex-wrap gap-1">
+                              {resumen.map((r) => (
                                 <span
-                                  key={j}
-                                  className="text-[10px] font-bold px-1.5 py-0.5 rounded-full"
-                                  style={{ background: `${colorJornada(j)}22`, color: colorJornada(j) }}
+                                  key={`${r.sede}|${r.jornada}`}
+                                  className="text-[11px] font-medium px-2 py-0.5 rounded-full"
+                                  style={{ background: `${colorJornada(r.jornada)}1c`, color: colorJornada(r.jornada) }}
                                 >
-                                  {labelJornada(j)}
+                                  {labelSede(r.sede)} · {labelJornada(r.jornada)}
+                                  {r.diasTexto ? ` · ${r.diasTexto}` : ""}
                                 </span>
                               ))}
-                            </span>
+                            </div>
                           )}
-                        </span>
-                      </label>
-                    );
-                  })}
-                  {materiasFiltradas.length === 0 && (
-                    <p className="text-sm text-gray-400">Ninguna materia coincide con la búsqueda.</p>
-                  )}
-                </div>
-              </div>
-
-              {/* Columna builder por jornada */}
-              <div>
-                <p className="text-xs font-semibold text-brand-600 tracking-wide mb-2">
-                  1 · ELIGE LA JORNADA A PROGRAMAR
-                </p>
-                <div className="flex flex-wrap gap-2 mb-4">
-                  {JORNADAS.map((j) => {
-                    const n = (estadoPorJornada[j.value] || estadoJornadaVacio()).celdas.size;
-                    const rango =
-                      j.opciones && j.opciones.length > 0
-                        ? "Ver opciones"
-                        : j.horaInicio
-                        ? `${j.horaInicio} – ${j.horaFin}`
-                        : "";
-                    return (
-                      <button
-                        key={j.value}
-                        onClick={() => setJornadaActiva(j.value)}
-                        className={`relative rounded-lg border px-3 py-2 text-left text-xs font-semibold transition ${
-                          jornadaActiva === j.value
-                            ? "border-brand-600 bg-brand-50 text-brand-700"
-                            : "border-gray-200 text-gray-600 hover:bg-gray-50"
-                        }`}
-                      >
-                        {j.label}
-                        <span className="block font-normal text-[10px] text-gray-400">{rango}</span>
-                        {n > 0 && (
-                          <span
-                            className="absolute -top-2 -right-2 text-white text-[10px] font-bold rounded-full min-w-[17px] h-[17px] flex items-center justify-center px-1"
-                            style={{ background: colorJornada(j.value) }}
-                          >
-                            {n}
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <p className="text-xs font-semibold text-brand-600 tracking-wide mb-2">
-                  2 · SEDE(S) DE ESTA JORNADA
-                </p>
-                <div className="flex flex-wrap gap-2 mb-4">
-                  {SEDES.map((s) => (
-                    <button
-                      key={s.value}
-                      onClick={() => toggleSede(s.value)}
-                      className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
-                        estadoActivo.sedes.has(s.value)
-                          ? "bg-brand-600 border-brand-600 text-white"
-                          : "border-gray-300 text-gray-700 hover:bg-gray-50"
-                      }`}
-                    >
-                      {s.label}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="flex items-center justify-between gap-2 mb-2">
-                  <p className="text-xs font-semibold text-brand-600 tracking-wide">
-                    3 · MARCA LOS DÍAS Y HORAS
-                  </p>
-                  <button className="text-xs text-gray-500 border border-gray-300 rounded-lg px-2 py-1" onClick={limpiarJornadaActiva}>
-                    Limpiar esta jornada
-                  </button>
-                </div>
-                <p className="text-xs text-gray-400 mb-2">
-                  Clic en una celda para marcarla; clic en un día o un bloque marca/quita toda la
-                  fila o columna. El recuadro punteado sugiere el horario típico de{" "}
-                  {jornadaInfo?.label.toLowerCase()}.
-                </p>
-
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs border-collapse">
-                    <thead>
-                      <tr>
-                        <th className="border border-gray-200 bg-gray-50"></th>
-                        {diasVisibles.map((d) => (
-                          <th
-                            key={d.value}
-                            className="border border-gray-200 bg-gray-50 py-1.5 font-semibold text-gray-500 cursor-pointer hover:bg-brand-50 hover:text-brand-700"
-                            onClick={() => toggleColumna(d.value)}
-                          >
-                            {d.corto}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {BLOQUES_HORARIO.map((b) => {
-                        const claveB = claveBloque(b);
-                        const sugerido = bloqueSugerido(jornadaActiva, b);
-                        return (
-                          <tr key={claveB}>
-                            <td
-                              className="border border-gray-200 bg-gray-50 px-2 py-1 whitespace-nowrap text-gray-500 font-medium cursor-pointer hover:bg-brand-50 hover:text-brand-700"
-                              onClick={() => toggleFila(b)}
-                            >
-                              {b.horaInicio}–{b.horaFin}
-                              {b.corto ? " *" : ""}
-                            </td>
-                            {diasVisibles.map((d) => {
-                              const on = estadoActivo.celdas.has(claveCelda(d.value, claveB));
-                              return (
-                                <td
-                                  key={d.value}
-                                  onClick={() => toggleCelda(d.value, claveB)}
-                                  className="border border-gray-200 h-8 cursor-pointer relative"
-                                  style={{
-                                    background: on ? colorJornada(jornadaActiva) : sugerido ? "#fafdff" : undefined
-                                  }}
-                                >
-                                  {!on && sugerido && (
-                                    <span className="absolute inset-1 border border-dashed border-brand-200 rounded-sm" />
-                                  )}
-                                </td>
-                              );
-                            })}
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="flex flex-wrap gap-1.5 mt-3 mb-1">
-                  {celdasActivasOrdenadas.length === 0 ? (
-                    <span className="text-xs text-gray-400">
-                      Todavía no has marcado ningún día/hora para esta jornada.
-                    </span>
-                  ) : (
-                    celdasActivasOrdenadas.map((c) => (
-                      <span
-                        key={claveCelda(c.dia, claveBloque(c.bloque))}
-                        className="inline-flex items-center gap-1.5 rounded-full border border-brand-200 bg-brand-50 text-brand-700 text-xs font-medium pl-2.5 pr-1 py-1"
-                      >
-                        {labelDia(c.dia)} {c.bloque.horaInicio}–{c.bloque.horaFin}
+                        </div>
                         <button
-                          className="text-brand-300 hover:text-brand-700 leading-none px-1"
-                          onClick={() => toggleCelda(c.dia, claveBloque(c.bloque))}
+                          type="button"
+                          className="btn-secondary text-xs shrink-0"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            abrirMateria(item.id);
+                          }}
                         >
-                          ×
+                          {expandida ? "Cerrar" : resumen.length > 0 ? "Editar horario" : "Programar horario"}
                         </button>
-                      </span>
-                    ))
-                  )}
-                </div>
-
-                <div className="flex flex-wrap items-center justify-between gap-3 mt-4 pt-3 border-t border-gray-200">
-                  <p className="text-xs text-gray-400">{notaAplicar}</p>
-                  <button className="btn-primary" onClick={aplicarJornada} disabled={guardando || !listoParaAplicar}>
-                    {guardando ? "Aplicando..." : `Aplicar ${jornadaInfo?.label || ""} a las materias marcadas →`}
-                  </button>
-                </div>
-
-                {mensaje && (
-                  <p className="text-sm text-brand-700 bg-brand-50 border border-brand-200 rounded-lg px-3 py-2 mt-3">
-                    {mensaje}
-                  </p>
-                )}
-                {error && (
-                  <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mt-3">
-                    {error}
-                  </p>
-                )}
-
-                <div className="mt-6">
-                  <div className="flex gap-2 mb-3">
-                    <button
-                      className={`flex-1 rounded-lg border px-3 py-2 text-xs font-semibold ${
-                        vista === "resumen"
-                          ? "border-brand-600 bg-brand-50 text-brand-700"
-                          : "border-gray-200 text-gray-500"
-                      }`}
-                      onClick={() => setVista("resumen")}
-                    >
-                      Programación asignada · {filasAsignadas.length} registro
-                      {filasAsignadas.length === 1 ? "" : "s"}
-                    </button>
-                    <button
-                      className={`flex-1 rounded-lg border px-3 py-2 text-xs font-semibold ${
-                        vista === "semana"
-                          ? "border-brand-600 bg-brand-50 text-brand-700"
-                          : "border-gray-200 text-gray-500"
-                      }`}
-                      onClick={() => setVista("semana")}
-                    >
-                      Vista semanal (todas las jornadas)
-                    </button>
-                  </div>
-
-                  {vista === "resumen" ? (
-                    filasAsignadas.length === 0 ? (
-                      <p className="text-sm text-gray-400">
-                        Todavía no hay materias programadas en este ciclo.
-                      </p>
-                    ) : (
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                          <thead>
-                            <tr className="text-left text-gray-500 border-b">
-                              <th className="py-1 pr-3">Materia</th>
-                              <th className="py-1 pr-3">Jornada</th>
-                              <th className="py-1 pr-3">Sedes</th>
-                              <th className="py-1 pr-3">Horario</th>
-                              <th className="py-1 pr-3"></th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {filasAsignadas.map(({ item, jornada, sedes, bloques }) => (
-                              <tr key={`${item.id}-${jornada}`} className="border-b last:border-0">
-                                <td className="py-1.5 pr-3">{item.asignatura}</td>
-                                <td className="py-1.5 pr-3">
-                                  <span
-                                    className="text-xs font-bold px-2 py-0.5 rounded-full"
-                                    style={{ background: `${colorJornada(jornada)}1c`, color: colorJornada(jornada) }}
-                                  >
-                                    {labelJornada(jornada)}
-                                  </span>
-                                </td>
-                                <td className="py-1.5 pr-3">{sedes.map(labelSede).join(", ")}</td>
-                                <td className="py-1.5 pr-3">{bloques.join(" · ")}</td>
-                                <td className="py-1.5 pr-3 text-right">
-                                  <button
-                                    className="text-red-600 text-xs font-medium"
-                                    onClick={() => quitarAsignacion(item.id, jornada)}
-                                  >
-                                    Quitar
-                                  </button>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
                       </div>
-                    )
-                  ) : (
-                    <div>
-                      <div className="flex flex-wrap gap-3 mb-3">
-                        {JORNADAS.map((j) => (
-                          <span key={j.value} className="inline-flex items-center gap-1.5 text-xs text-gray-500">
-                            <span
-                              className="inline-block w-2.5 h-2.5 rounded-sm"
-                              style={{ background: colorJornada(j.value) }}
-                            />
-                            {j.label}
-                          </span>
-                        ))}
-                      </div>
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-xs border-collapse">
-                          <thead>
-                            <tr>
-                              <th className="border border-gray-200 bg-gray-50"></th>
-                              {DIAS.map((d) => (
-                                <th key={d.value} className="border border-gray-200 bg-gray-50 py-1.5 font-semibold text-gray-500">
-                                  {d.corto}
-                                </th>
+
+                      {expandida && (
+                        <div className="mt-4 pt-3 border-t border-gray-200 space-y-3">
+                          <div>
+                            <p className="text-xs font-semibold text-brand-600 tracking-wide mb-1">
+                              SEDE(S)
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              {SEDES.map((s) => (
+                                <button
+                                  key={s.value}
+                                  type="button"
+                                  onClick={() => toggleSede(item.id, s.value)}
+                                  className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                                    cfg.sedes.has(s.value)
+                                      ? "bg-brand-600 border-brand-600 text-white"
+                                      : "border-gray-300 text-gray-700 hover:bg-gray-50"
+                                  }`}
+                                >
+                                  {s.label}
+                                </button>
                               ))}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {BLOQUES_HORARIO.map((b) => (
-                              <tr key={claveBloque(b)}>
-                                <td className="border border-gray-200 bg-gray-50 px-2 py-1 whitespace-nowrap text-gray-500 font-medium">
-                                  {b.horaInicio}–{b.horaFin}
-                                </td>
-                                {DIAS.map((d) => {
-                                  const entradas = celdasSemana.get(`${d.value}|${b.horaInicio}`) || [];
+                            </div>
+                          </div>
+
+                          {[...cfg.sedes].map((sede) => {
+                            const sedeCfg = cfg.porSede[sede] || { jornadas: new Set(), porJornada: {} };
+                            return (
+                              <div key={sede} className="ml-1 pl-3 border-l-2 border-brand-100 space-y-2">
+                                <p className="text-xs font-semibold text-gray-500 tracking-wide">
+                                  JORNADA(S) EN {labelSede(sede).toUpperCase()}
+                                </p>
+                                <div className="flex flex-wrap gap-2">
+                                  {JORNADAS.map((j) => (
+                                    <button
+                                      key={j.value}
+                                      type="button"
+                                      onClick={() => toggleJornada(item.id, sede, j.value)}
+                                      className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
+                                        sedeCfg.jornadas.has(j.value)
+                                          ? "text-white"
+                                          : "border-gray-200 text-gray-600 hover:bg-gray-50"
+                                      }`}
+                                      style={
+                                        sedeCfg.jornadas.has(j.value)
+                                          ? { background: colorJornada(j.value), borderColor: colorJornada(j.value) }
+                                          : undefined
+                                      }
+                                    >
+                                      {j.label}
+                                    </button>
+                                  ))}
+                                </div>
+
+                                {[...sedeCfg.jornadas].map((jornada) => {
+                                  const jc = sedeCfg.porJornada[jornada] || { dias: new Set(), horarioPorDia: {} };
+                                  const dias = diasVisiblesPara(jornada);
                                   return (
-                                    <td key={d.value} className="border border-gray-200 align-top p-0.5">
-                                      {entradas.map((e, i) => (
-                                        <div
-                                          key={i}
-                                          title={`${e.materia} · ${labelJornada(e.jornada)}`}
-                                          className="text-[9px] font-bold text-white rounded px-1 py-0.5 mb-0.5 truncate"
-                                          style={{ background: colorJornada(e.jornada) }}
-                                        >
-                                          {e.materia}
-                                        </div>
-                                      ))}
-                                    </td>
+                                    <div key={jornada} className="ml-1 pl-3 border-l-2 border-gray-100">
+                                      <p className="text-xs text-gray-400 mb-1">
+                                        Días — {labelJornada(jornada)}
+                                      </p>
+                                      <div className="space-y-1.5">
+                                        {dias.map((d) => {
+                                          const activo = jc.dias.has(d.value);
+                                          const h = jc.horarioPorDia[d.value] || { hora_inicio: "", hora_fin: "" };
+                                          return (
+                                            <div key={d.value} className="flex flex-wrap items-center gap-2">
+                                              <label className="checkbox-pill !w-28 shrink-0">
+                                                <input
+                                                  type="checkbox"
+                                                  className="accent-brand-600"
+                                                  checked={activo}
+                                                  onChange={() => toggleDia(item.id, sede, jornada, d.value)}
+                                                />
+                                                {d.label}
+                                              </label>
+                                              {activo && (
+                                                <>
+                                                  <input
+                                                    type="time"
+                                                    className="input !w-32 shrink-0"
+                                                    value={h.hora_inicio}
+                                                    onChange={(e) =>
+                                                      actualizarHorarioDia(
+                                                        item.id,
+                                                        sede,
+                                                        jornada,
+                                                        d.value,
+                                                        "hora_inicio",
+                                                        e.target.value
+                                                      )
+                                                    }
+                                                  />
+                                                  <span className="text-gray-400 text-sm">a</span>
+                                                  <input
+                                                    type="time"
+                                                    className="input !w-32 shrink-0"
+                                                    value={h.hora_fin}
+                                                    onChange={(e) =>
+                                                      actualizarHorarioDia(
+                                                        item.id,
+                                                        sede,
+                                                        jornada,
+                                                        d.value,
+                                                        "hora_fin",
+                                                        e.target.value
+                                                      )
+                                                    }
+                                                  />
+                                                </>
+                                              )}
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
                                   );
                                 })}
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
+                              </div>
+                            );
+                          })}
+
+                          {cfg.sedes.size === 0 && (
+                            <p className="text-xs text-gray-400">
+                              Elige al menos una sede para empezar a programar esta materia.
+                            </p>
+                          )}
+
+                          {errorM && (
+                            <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                              {errorM}
+                            </p>
+                          )}
+                          {mensajeM && (
+                            <p className="text-sm text-brand-700 bg-brand-50 border border-brand-200 rounded-lg px-3 py-2">
+                              {mensajeM}
+                            </p>
+                          )}
+
+                          <div className="flex justify-end gap-2 pt-1">
+                            <button
+                              type="button"
+                              className="btn-secondary text-xs"
+                              onClick={() => setMateriaExpandida(null)}
+                            >
+                              Cancelar
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-primary text-xs"
+                              onClick={() => guardarMateria(item.id)}
+                              disabled={guardando}
+                            >
+                              {guardando ? "Guardando..." : "Guardar programación"}
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
+                  );
+                })}
+                {materiasFiltradas.length === 0 && (
+                  <p className="text-sm text-gray-400">Ninguna materia coincide con la búsqueda.</p>
+                )}
               </div>
             </div>
           )}

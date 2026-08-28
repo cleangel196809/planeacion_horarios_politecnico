@@ -289,7 +289,7 @@ export default function GrupoForm({ facultad, initial, onCancel, onSubmit }) {
             const h = horariosPorDia[d.value] || HORARIO_VACIO;
             return (
               <div key={d.value} className="flex flex-wrap items-center gap-2">
-                <label className="checkbox-pill w-32 shrink-0">
+                <label className="checkbox-pill !w-32 shrink-0">
                   <input
                     type="checkbox"
                     className="accent-brand-600"
@@ -302,14 +302,14 @@ export default function GrupoForm({ facultad, initial, onCancel, onSubmit }) {
                   <>
                     <input
                       type="time"
-                      className="input w-32"
+                      className="input !w-32 shrink-0"
                       value={h.hora_inicio}
                       onChange={(e) => actualizarHorario(d.value, "hora_inicio", e.target.value)}
                     />
                     <span className="text-gray-400 text-sm">a</span>
                     <input
                       type="time"
-                      className="input w-32"
+                      className="input !w-32 shrink-0"
                       value={h.hora_fin}
                       onChange={(e) => actualizarHorario(d.value, "hora_fin", e.target.value)}
                     />
@@ -319,13 +319,13 @@ export default function GrupoForm({ facultad, initial, onCancel, onSubmit }) {
                       <input
                         type="text"
                         placeholder="Salón"
-                        className="input w-40"
+                        className="input !w-40 shrink-0"
                         value={h.salon}
                         onChange={(e) => actualizarHorario(d.value, "salon", e.target.value)}
                       />
                     ) : (
                       <select
-                        className="input w-40"
+                        className="input !w-40 shrink-0"
                         value={h.salon}
                         onChange={(e) => actualizarHorario(d.value, "salon", e.target.value)}
                       >
