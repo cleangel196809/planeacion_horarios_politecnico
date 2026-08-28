@@ -13,7 +13,7 @@ function horariosArrayToMap(horarios) {
   return map;
 }
 
-export default function GrupoForm({ initial, onCancel, onSubmit }) {
+export default function GrupoForm({ facultad, initial, onCancel, onSubmit }) {
   const isEdit = Boolean(initial?.id);
 
   const [grupo, setGrupo] = useState(initial?.grupo || "");
@@ -36,8 +36,15 @@ export default function GrupoForm({ initial, onCancel, onSubmit }) {
   const [codigoMoodleDuplicar, setCodigoMoodleDuplicar] = useState(initial?.codigo_moodle_a_duplicar || "");
   const [observaciones, setObservaciones] = useState(initial?.observaciones || "");
 
-  const [busquedaDocente, setBusquedaDocente] = useState("");
-  const [sugerenciasDocente, setSugerenciasDocente] = useState([]);
+  const [docentesFacultad, setDocentesFacultad] = useState([]);
+  const [cargandoDocentes, setCargandoDocentes] = useState(true);
+  const [salonesSede, setSalonesSede] = useState([]);
+  const [cargandoSalones, setCargandoSalones] = useState(false);
+  const [modoManualSalon, setModoManualSalon] = useState(false);
+  // Si el docente del grupo (al editar) no está en la lista de la facultad,
+  // o esa facultad todavía no tiene ningún docente cargado, se entra en modo
+  // manual para no perder ni bloquear la captura de datos.
+  const [modoManualDocente, setModoManualDocente] = useState(false);
 
   const [error, setError] = useState("");
   const [guardando, setGuardando] = useState(false);
@@ -45,27 +52,53 @@ export default function GrupoForm({ initial, onCancel, onSubmit }) {
   const jornadaSeleccionada = useMemo(() => JORNADAS.find((j) => j.value === jornada), [jornada]);
 
   useEffect(() => {
-    if (busquedaDocente.trim().length < 2) {
-      setSugerenciasDocente([]);
+    if (!facultad) {
+      setCargandoDocentes(false);
       return;
     }
-    const controller = new AbortController();
-    const timeout = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/docentes?q=${encodeURIComponent(busquedaDocente)}`, {
-          signal: controller.signal
-        });
-        const data = await res.json();
-        setSugerenciasDocente(data.docentes || []);
-      } catch (err) {
-        // silencioso: la búsqueda de docente es una ayuda, no bloquea el formulario
-      }
-    }, 300);
-    return () => {
-      clearTimeout(timeout);
-      controller.abort();
-    };
-  }, [busquedaDocente]);
+    setCargandoDocentes(true);
+    fetch(`/api/docentes?facultad=${encodeURIComponent(facultad)}`)
+      .then((r) => r.json())
+      .then((d) => {
+        const lista = d.docentes || [];
+        setDocentesFacultad(lista);
+        const yaEnLista = initial?.documento_docente
+          ? lista.some((doc) => doc.documento === initial.documento_docente)
+          : true;
+        if (lista.length === 0 || (initial?.documento_docente && !yaEnLista)) {
+          setModoManualDocente(true);
+        }
+      })
+      .catch(() => setModoManualDocente(true))
+      .finally(() => setCargandoDocentes(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [facultad]);
+
+  useEffect(() => {
+    if (!modalidad) {
+      setSalonesSede([]);
+      return;
+    }
+    setCargandoSalones(true);
+    fetch(`/api/salones?sede=${encodeURIComponent(modalidad)}`)
+      .then((r) => r.json())
+      .then((d) => {
+        const lista = d.salones || [];
+        setSalonesSede(lista);
+        // Si algún salón ya diligenciado no está en la lista de esta sede (o
+        // la sede todavía no tiene salones cargados), se entra en modo
+        // manual para no perder ni bloquear el dato existente.
+        const nombresLista = new Set(lista.map((s) => s.nombre));
+        const salonesActuales = Object.values(horariosPorDia)
+          .map((h) => h.salon)
+          .filter(Boolean);
+        const algunoFueraDeLista = salonesActuales.some((s) => !nombresLista.has(s));
+        if (lista.length === 0 || algunoFueraDeLista) setModoManualSalon(true);
+      })
+      .catch(() => setModoManualSalon(true))
+      .finally(() => setCargandoSalones(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modalidad]);
 
   function toggleDia(dia) {
     setDiasSeleccionados((prev) => {
@@ -107,12 +140,21 @@ export default function GrupoForm({ initial, onCancel, onSubmit }) {
     }));
   }
 
-  function elegirDocente(d) {
+  function elegirDocentePorDocumento(documento) {
+    if (documento === "__manual__") {
+      setModoManualDocente(true);
+      return;
+    }
+    const d = docentesFacultad.find((doc) => doc.documento === documento);
+    if (!d) {
+      setDocumentoDocente("");
+      setNombreDocente("");
+      setCorreoInstitucional("");
+      return;
+    }
     setDocumentoDocente(d.documento);
     setNombreDocente(d.nombre_completo);
     setCorreoInstitucional(d.correo_institucional || "");
-    setBusquedaDocente("");
-    setSugerenciasDocente([]);
   }
 
   async function handleSubmit(e) {
@@ -229,8 +271,19 @@ export default function GrupoForm({ initial, onCancel, onSubmit }) {
       </div>
 
       <div>
-        <label className="label">Días y horario</label>
-        <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <label className="label mb-0">Días y horario</label>
+          {!cargandoSalones && salonesSede.length > 0 && (
+            <button
+              type="button"
+              className="text-xs text-brand-600 font-medium"
+              onClick={() => setModoManualSalon((v) => !v)}
+            >
+              {modoManualSalon ? "← Elegir salón de la lista" : "Escribir salón manualmente"}
+            </button>
+          )}
+        </div>
+        <div className="space-y-2 mt-1">
           {DIAS.map((d) => {
             const activo = diasSeleccionados.has(d.value);
             const h = horariosPorDia[d.value] || HORARIO_VACIO;
@@ -260,13 +313,31 @@ export default function GrupoForm({ initial, onCancel, onSubmit }) {
                       value={h.hora_fin}
                       onChange={(e) => actualizarHorario(d.value, "hora_fin", e.target.value)}
                     />
-                    <input
-                      type="text"
-                      placeholder="Salón"
-                      className="input w-32"
-                      value={h.salon}
-                      onChange={(e) => actualizarHorario(d.value, "salon", e.target.value)}
-                    />
+                    {!modalidad ? (
+                      <span className="text-xs text-gray-400 w-40">Elige primero la sede</span>
+                    ) : modoManualSalon || salonesSede.length === 0 ? (
+                      <input
+                        type="text"
+                        placeholder="Salón"
+                        className="input w-40"
+                        value={h.salon}
+                        onChange={(e) => actualizarHorario(d.value, "salon", e.target.value)}
+                      />
+                    ) : (
+                      <select
+                        className="input w-40"
+                        value={h.salon}
+                        onChange={(e) => actualizarHorario(d.value, "salon", e.target.value)}
+                      >
+                        <option value="">Salón...</option>
+                        {salonesSede.map((s) => (
+                          <option key={s.id} value={s.nombre}>
+                            {s.identificador ? `${s.identificador} · ` : ""}
+                            {s.nombre}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                   </>
                 )}
               </div>
@@ -279,46 +350,64 @@ export default function GrupoForm({ initial, onCancel, onSubmit }) {
       </div>
 
       <div className="grid sm:grid-cols-2 gap-4">
-        <div className="relative">
-          <label className="label">Docente</label>
-          <input
-            className="input"
-            placeholder="Buscar por nombre o documento..."
-            value={busquedaDocente || nombreDocente}
-            onChange={(e) => {
-              setBusquedaDocente(e.target.value);
-              setNombreDocente(e.target.value);
-            }}
-          />
-          {sugerenciasDocente.length > 0 && (
-            <ul className="absolute z-10 bg-white border border-gray-200 rounded-lg shadow-md w-full mt-1 max-h-48 overflow-auto">
-              {sugerenciasDocente.map((d) => (
-                <li
-                  key={d.documento}
-                  className="px-3 py-2 text-sm hover:bg-brand-50 cursor-pointer"
-                  onClick={() => elegirDocente(d)}
-                >
-                  {d.nombre_completo} <span className="text-gray-400">· {d.documento}</span>
-                </li>
+        <div className="sm:col-span-2">
+          <div className="flex items-center justify-between">
+            <label className="label mb-0">Docente</label>
+            {!cargandoDocentes && docentesFacultad.length > 0 && (
+              <button
+                type="button"
+                className="text-xs text-brand-600 font-medium"
+                onClick={() => setModoManualDocente((v) => !v)}
+              >
+                {modoManualDocente ? "← Elegir de la lista" : "Escribir manualmente"}
+              </button>
+            )}
+          </div>
+
+          {cargandoDocentes ? (
+            <p className="text-sm text-gray-400 mt-1">Cargando docentes de la facultad...</p>
+          ) : !modoManualDocente ? (
+            <select
+              className="input"
+              value={documentoDocente}
+              onChange={(e) => elegirDocentePorDocumento(e.target.value)}
+            >
+              <option value="">Selecciona un docente...</option>
+              {docentesFacultad.map((d) => (
+                <option key={d.documento} value={d.documento}>
+                  {d.nombre_completo} · {d.documento}
+                </option>
               ))}
-            </ul>
+              <option value="__manual__">Otro (escribir manualmente)...</option>
+            </select>
+          ) : (
+            <div className="grid sm:grid-cols-3 gap-3 mt-1">
+              <input
+                className="input"
+                placeholder="Nombre completo"
+                value={nombreDocente}
+                onChange={(e) => setNombreDocente(e.target.value)}
+              />
+              <input
+                className="input"
+                placeholder="Documento"
+                value={documentoDocente}
+                onChange={(e) => setDocumentoDocente(e.target.value)}
+              />
+              <input
+                className="input"
+                placeholder="Correo institucional"
+                value={correoInstitucional}
+                onChange={(e) => setCorreoInstitucional(e.target.value)}
+              />
+            </div>
           )}
-        </div>
-        <div>
-          <label className="label">Documento del docente</label>
-          <input
-            className="input"
-            value={documentoDocente}
-            onChange={(e) => setDocumentoDocente(e.target.value)}
-          />
-        </div>
-        <div>
-          <label className="label">Correo institucional del docente</label>
-          <input
-            className="input"
-            value={correoInstitucional}
-            onChange={(e) => setCorreoInstitucional(e.target.value)}
-          />
+          {!cargandoDocentes && docentesFacultad.length === 0 && (
+            <p className="text-xs text-gray-400 mt-1">
+              Todavía no hay docentes cargados para esta facultad; pídele al administrador que los
+              cargue para poder elegirlos de una lista la próxima vez.
+            </p>
+          )}
         </div>
         <div>
           <label className="label">Estado</label>

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import TopBar from "@/components/TopBar";
 import CambiarPasswordModal from "@/components/CambiarPasswordModal";
 import DecanoApp from "@/components/DecanoApp";
+import { SEDES } from "@/lib/constants";
 
 export default function AdminApp({ user }) {
   const [mostrarCambiarPassword, setMostrarCambiarPassword] = useState(
@@ -44,6 +45,39 @@ export default function AdminApp({ user }) {
   const [periodoResumen, setPeriodoResumen] = useState("");
   const [resumen, setResumen] = useState(null);
 
+  const [docentes, setDocentes] = useState([]);
+  const [nuevoDocente, setNuevoDocente] = useState({
+    documento: "",
+    nombre_completo: "",
+    facultad: "",
+    correo_institucional: ""
+  });
+  const [errorDocente, setErrorDocente] = useState("");
+  const [guardandoDocente, setGuardandoDocente] = useState(false);
+  const [archivoDocentes, setArchivoDocentes] = useState(null);
+  const [importandoDocentes, setImportandoDocentes] = useState(false);
+  const [mensajeDocentes, setMensajeDocentes] = useState(null);
+  const [errorImportDocentes, setErrorImportDocentes] = useState("");
+  const [filtroFacultadDocente, setFiltroFacultadDocente] = useState("");
+
+  const [salones, setSalones] = useState([]);
+  const [nuevoSalon, setNuevoSalon] = useState({
+    id: null,
+    sede: SEDES[0]?.value || "",
+    nombre: "",
+    planta: "",
+    capacidad: "",
+    identificador: "",
+    observaciones: ""
+  });
+  const [errorSalon, setErrorSalon] = useState("");
+  const [guardandoSalon, setGuardandoSalon] = useState(false);
+  const [archivoSalones, setArchivoSalones] = useState(null);
+  const [importandoSalones, setImportandoSalones] = useState(false);
+  const [mensajeSalones, setMensajeSalones] = useState(null);
+  const [errorImportSalones, setErrorImportSalones] = useState("");
+  const [filtroSedeSalon, setFiltroSedeSalon] = useState("");
+
   const facultadesDisponibles = useMemo(() => {
     const set = new Set(
       usuarios
@@ -60,8 +94,22 @@ export default function AdminApp({ user }) {
       .then((d) => setUsuarios(d.usuarios || []));
   }
 
+  function cargarDocentes() {
+    fetch("/api/admin/docentes")
+      .then((r) => r.json())
+      .then((d) => setDocentes(d.docentes || []));
+  }
+
+  function cargarSalones() {
+    fetch("/api/admin/salones")
+      .then((r) => r.json())
+      .then((d) => setSalones(d.salones || []));
+  }
+
   useEffect(() => {
     cargarUsuarios();
+    cargarDocentes();
+    cargarSalones();
     // Recuerda el último período consultado en "Avance por facultad" para
     // que no se sienta como si hubiera que volver a cargar todo al recargar
     // la página.
@@ -161,6 +209,165 @@ export default function AdminApp({ user }) {
     });
     cargarUsuarios();
   }
+
+  async function handleCrearDocente(e) {
+    e.preventDefault();
+    setErrorDocente("");
+    setGuardandoDocente(true);
+    try {
+      const res = await fetch("/api/admin/docentes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(nuevoDocente)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setNuevoDocente({ documento: "", nombre_completo: "", facultad: "", correo_institucional: "" });
+      cargarDocentes();
+    } catch (err) {
+      setErrorDocente(err.message);
+    } finally {
+      setGuardandoDocente(false);
+    }
+  }
+
+  async function eliminarDocente(documento) {
+    if (!confirm(`¿Eliminar al docente ${documento} del catálogo?`)) return;
+    await fetch("/api/admin/docentes", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ documento })
+    });
+    cargarDocentes();
+  }
+
+  function editarDocente(d) {
+    setNuevoDocente({
+      documento: d.documento,
+      nombre_completo: d.nombre_completo,
+      facultad: d.facultad || "",
+      correo_institucional: d.correo_institucional || ""
+    });
+  }
+
+  async function handleImportarDocentes(e) {
+    e.preventDefault();
+    setErrorImportDocentes("");
+    setMensajeDocentes(null);
+    if (!archivoDocentes) {
+      setErrorImportDocentes("Selecciona el archivo Excel de docentes.");
+      return;
+    }
+    setImportandoDocentes(true);
+    try {
+      const formData = new FormData();
+      formData.append("archivo", archivoDocentes);
+      const res = await fetch("/api/admin/docentes/importar", { method: "POST", body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setMensajeDocentes(data);
+      cargarDocentes();
+    } catch (err) {
+      setErrorImportDocentes(err.message);
+    } finally {
+      setImportandoDocentes(false);
+    }
+  }
+
+  async function handleGuardarSalon(e) {
+    e.preventDefault();
+    setErrorSalon("");
+    setGuardandoSalon(true);
+    try {
+      const res = await fetch("/api/admin/salones", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(nuevoSalon)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setNuevoSalon({
+        id: null,
+        sede: SEDES[0]?.value || "",
+        nombre: "",
+        planta: "",
+        capacidad: "",
+        identificador: "",
+        observaciones: ""
+      });
+      cargarSalones();
+    } catch (err) {
+      setErrorSalon(err.message);
+    } finally {
+      setGuardandoSalon(false);
+    }
+  }
+
+  async function eliminarSalon(id, nombre) {
+    if (!confirm(`¿Eliminar el salón "${nombre}"?`)) return;
+    await fetch("/api/admin/salones", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id })
+    });
+    cargarSalones();
+  }
+
+  function editarSalon(s) {
+    setNuevoSalon({
+      id: s.id,
+      sede: s.sede,
+      nombre: s.nombre,
+      planta: s.planta || "",
+      capacidad: s.capacidad ?? "",
+      identificador: s.identificador || "",
+      observaciones: s.observaciones || ""
+    });
+  }
+
+  async function handleImportarSalones(e) {
+    e.preventDefault();
+    setErrorImportSalones("");
+    setMensajeSalones(null);
+    if (!archivoSalones) {
+      setErrorImportSalones("Selecciona el archivo Excel de salones.");
+      return;
+    }
+    setImportandoSalones(true);
+    try {
+      const formData = new FormData();
+      formData.append("archivo", archivoSalones);
+      const res = await fetch("/api/admin/salones/importar", { method: "POST", body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setMensajeSalones(data);
+      cargarSalones();
+    } catch (err) {
+      setErrorImportSalones(err.message);
+    } finally {
+      setImportandoSalones(false);
+    }
+  }
+
+  const sedesSalones = useMemo(() => {
+    const set = new Set(salones.map((s) => s.sede).filter(Boolean));
+    return [...set].sort();
+  }, [salones]);
+
+  const salonesFiltrados = useMemo(() => {
+    if (!filtroSedeSalon) return salones;
+    return salones.filter((s) => s.sede === filtroSedeSalon);
+  }, [salones, filtroSedeSalon]);
+
+  const facultadesDocentes = useMemo(() => {
+    const set = new Set(docentes.map((d) => d.facultad).filter(Boolean));
+    return [...set].sort();
+  }, [docentes]);
+
+  const docentesFiltrados = useMemo(() => {
+    if (!filtroFacultadDocente) return docentes;
+    return docentes.filter((d) => d.facultad === filtroFacultadDocente);
+  }, [docentes, filtroFacultadDocente]);
 
   async function cargarResumen() {
     if (!periodoResumen) return;
@@ -561,6 +768,344 @@ export default function AdminApp({ user }) {
             >
               Entrar como decano de esta facultad
             </button>
+          </div>
+        </section>
+
+        <section className="card">
+          <h2 className="font-semibold text-gray-900 mb-1">5. Docentes</h2>
+          <p className="text-sm text-gray-500 mb-4">
+            El catálogo de docentes alimenta la lista desplegable que ven los decanos al asignar el
+            docente de un grupo, filtrada por su facultad. Puedes cargar un Excel con varios
+            docentes a la vez o agregar/editar uno por uno.
+          </p>
+
+          <form onSubmit={handleImportarDocentes} className="flex flex-wrap items-end gap-3 mb-4">
+            <div>
+              <label className="label">Archivo Excel de docentes</label>
+              <input
+                type="file"
+                accept=".xlsx"
+                className="input"
+                onChange={(e) => setArchivoDocentes(e.target.files?.[0] || null)}
+              />
+              <p className="text-xs text-gray-400 mt-1">
+                Columnas reconocidas: Documento (o Cédula/NIT), Nombre (completo), Correo y
+                Facultad. Puede venir en una hoja llamada &quot;DOCENTES&quot; o en la primera hoja
+                del archivo.
+              </p>
+            </div>
+            <button className="btn-primary" disabled={importandoDocentes}>
+              {importandoDocentes ? "Cargando..." : "Cargar docentes"}
+            </button>
+          </form>
+          {errorImportDocentes && <p className="text-sm text-red-600 mb-3">{errorImportDocentes}</p>}
+          {mensajeDocentes && (
+            <p className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2 mb-4">
+              {mensajeDocentes.docentesCargados} docente(s) cargado(s)
+              {mensajeDocentes.facultades.length > 0 &&
+                ` · Facultades: ${mensajeDocentes.facultades.join(", ")}`}
+              .
+            </p>
+          )}
+
+          <form
+            onSubmit={handleCrearDocente}
+            className="grid sm:grid-cols-5 gap-3 items-end mb-4 border-t border-gray-200 pt-4"
+          >
+            <div>
+              <label className="label">Documento</label>
+              <input
+                className="input"
+                value={nuevoDocente.documento}
+                onChange={(e) => setNuevoDocente({ ...nuevoDocente, documento: e.target.value })}
+                required
+              />
+            </div>
+            <div>
+              <label className="label">Nombre completo</label>
+              <input
+                className="input"
+                value={nuevoDocente.nombre_completo}
+                onChange={(e) => setNuevoDocente({ ...nuevoDocente, nombre_completo: e.target.value })}
+                required
+              />
+            </div>
+            <div>
+              <label className="label">Facultad</label>
+              <input
+                className="input"
+                value={nuevoDocente.facultad}
+                onChange={(e) => setNuevoDocente({ ...nuevoDocente, facultad: e.target.value })}
+                placeholder="Como aparece en el catálogo"
+                required
+              />
+            </div>
+            <div>
+              <label className="label">Correo institucional</label>
+              <input
+                type="email"
+                className="input"
+                value={nuevoDocente.correo_institucional}
+                onChange={(e) =>
+                  setNuevoDocente({ ...nuevoDocente, correo_institucional: e.target.value })
+                }
+              />
+            </div>
+            <button className="btn-primary" disabled={guardandoDocente}>
+              {guardandoDocente ? "Guardando..." : "Guardar docente"}
+            </button>
+          </form>
+          {errorDocente && <p className="text-sm text-red-600 mb-3">{errorDocente}</p>}
+
+          <div className="flex items-center justify-between mb-2">
+            <label className="label mb-0">Filtrar por facultad</label>
+            <select
+              className="input max-w-xs"
+              value={filtroFacultadDocente}
+              onChange={(e) => setFiltroFacultadDocente(e.target.value)}
+            >
+              <option value="">Todas ({docentes.length})</option>
+              {facultadesDocentes.map((f) => (
+                <option key={f} value={f}>
+                  {f}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="overflow-x-auto max-h-96 overflow-y-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-gray-500 border-b">
+                  <th className="py-1 pr-3">Documento</th>
+                  <th className="py-1 pr-3">Nombre</th>
+                  <th className="py-1 pr-3">Facultad</th>
+                  <th className="py-1 pr-3">Correo</th>
+                  <th className="py-1 pr-3"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {docentesFiltrados.map((d) => (
+                  <tr key={d.documento} className="border-b last:border-0">
+                    <td className="py-1.5 pr-3">{d.documento}</td>
+                    <td className="py-1.5 pr-3">{d.nombre_completo}</td>
+                    <td className="py-1.5 pr-3">{d.facultad || "—"}</td>
+                    <td className="py-1.5 pr-3">{d.correo_institucional || "—"}</td>
+                    <td className="py-1.5 pr-3 text-right whitespace-nowrap">
+                      <button
+                        className="text-brand-600 text-xs font-medium mr-3"
+                        onClick={() => editarDocente(d)}
+                      >
+                        Editar
+                      </button>
+                      <button
+                        className="text-red-600 text-xs font-medium"
+                        onClick={() => eliminarDocente(d.documento)}
+                      >
+                        Eliminar
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {docentesFiltrados.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="py-4 text-center text-gray-400">
+                      Todavía no hay docentes cargados{filtroFacultadDocente ? " para esta facultad" : ""}.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section className="card">
+          <h2 className="font-semibold text-gray-900 mb-1">6. Salones por sede</h2>
+          <p className="text-sm text-gray-500 mb-4">
+            El catálogo de salones alimenta la lista desplegable que ven los decanos al asignar el
+            salón de una clase, filtrada por la sede del grupo. Puedes cargar el Excel con una hoja
+            por sede (el nombre de la hoja se toma como la sede) o agregar/editar un salón a la vez.
+          </p>
+
+          <form onSubmit={handleImportarSalones} className="flex flex-wrap items-end gap-3 mb-4">
+            <div>
+              <label className="label">Archivo Excel de salones</label>
+              <input
+                type="file"
+                accept=".xlsx"
+                className="input"
+                onChange={(e) => setArchivoSalones(e.target.files?.[0] || null)}
+              />
+              <p className="text-xs text-gray-400 mt-1">
+                Una hoja por sede (el nombre de la hoja = la sede), con columnas Planta, Nombre de
+                salón, Capacidad, Identificador y Observaciones. Las demás hojas del archivo se
+                ignoran automáticamente.
+              </p>
+            </div>
+            <button className="btn-primary" disabled={importandoSalones}>
+              {importandoSalones ? "Cargando..." : "Cargar salones"}
+            </button>
+          </form>
+          {errorImportSalones && <p className="text-sm text-red-600 mb-3">{errorImportSalones}</p>}
+          {mensajeSalones && (
+            <p className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2 mb-4">
+              {mensajeSalones.salonesCargados} salón(es) cargado(s) · Sedes: {mensajeSalones.sedes.join(", ")}.
+              {mensajeSalones.hojasIgnoradas?.length > 0 &&
+                ` Hojas ignoradas (no tenían columnas de salón): ${mensajeSalones.hojasIgnoradas.join(", ")}.`}
+            </p>
+          )}
+
+          <form
+            onSubmit={handleGuardarSalon}
+            className="grid sm:grid-cols-6 gap-3 items-end mb-4 border-t border-gray-200 pt-4"
+          >
+            <div>
+              <label className="label">Sede</label>
+              <select
+                className="input"
+                value={nuevoSalon.sede}
+                onChange={(e) => setNuevoSalon({ ...nuevoSalon, sede: e.target.value })}
+              >
+                {SEDES.filter((s) => s.value !== "ASISTIDA POR TECNOLOGIA").map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="sm:col-span-2">
+              <label className="label">Nombre del salón</label>
+              <input
+                className="input"
+                value={nuevoSalon.nombre}
+                onChange={(e) => setNuevoSalon({ ...nuevoSalon, nombre: e.target.value })}
+                required
+              />
+            </div>
+            <div>
+              <label className="label">Planta</label>
+              <input
+                className="input"
+                value={nuevoSalon.planta}
+                onChange={(e) => setNuevoSalon({ ...nuevoSalon, planta: e.target.value })}
+                placeholder="Piso 1"
+              />
+            </div>
+            <div>
+              <label className="label">Capacidad</label>
+              <input
+                type="number"
+                min="0"
+                className="input"
+                value={nuevoSalon.capacidad}
+                onChange={(e) => setNuevoSalon({ ...nuevoSalon, capacidad: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="label">Identificador</label>
+              <input
+                className="input"
+                value={nuevoSalon.identificador}
+                onChange={(e) => setNuevoSalon({ ...nuevoSalon, identificador: e.target.value })}
+                placeholder="COC 1"
+              />
+            </div>
+            <div className="sm:col-span-5">
+              <label className="label">Observaciones</label>
+              <input
+                className="input"
+                value={nuevoSalon.observaciones}
+                onChange={(e) => setNuevoSalon({ ...nuevoSalon, observaciones: e.target.value })}
+              />
+            </div>
+            <div className="flex gap-2">
+              <button className="btn-primary" disabled={guardandoSalon}>
+                {guardandoSalon ? "Guardando..." : nuevoSalon.id ? "Guardar cambios" : "Agregar salón"}
+              </button>
+              {nuevoSalon.id && (
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() =>
+                    setNuevoSalon({
+                      id: null,
+                      sede: SEDES[0]?.value || "",
+                      nombre: "",
+                      planta: "",
+                      capacidad: "",
+                      identificador: "",
+                      observaciones: ""
+                    })
+                  }
+                >
+                  Cancelar
+                </button>
+              )}
+            </div>
+          </form>
+          {errorSalon && <p className="text-sm text-red-600 mb-3">{errorSalon}</p>}
+
+          <div className="flex items-center justify-between mb-2">
+            <label className="label mb-0">Filtrar por sede</label>
+            <select
+              className="input max-w-xs"
+              value={filtroSedeSalon}
+              onChange={(e) => setFiltroSedeSalon(e.target.value)}
+            >
+              <option value="">Todas ({salones.length})</option>
+              {sedesSalones.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="overflow-x-auto max-h-96 overflow-y-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-gray-500 border-b">
+                  <th className="py-1 pr-3">Sede</th>
+                  <th className="py-1 pr-3">Salón</th>
+                  <th className="py-1 pr-3">Planta</th>
+                  <th className="py-1 pr-3">Capacidad</th>
+                  <th className="py-1 pr-3">Identificador</th>
+                  <th className="py-1 pr-3"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {salonesFiltrados.map((s) => (
+                  <tr key={s.id} className="border-b last:border-0">
+                    <td className="py-1.5 pr-3">{s.sede}</td>
+                    <td className="py-1.5 pr-3">{s.nombre}</td>
+                    <td className="py-1.5 pr-3">{s.planta || "—"}</td>
+                    <td className="py-1.5 pr-3">{s.capacidad ?? "—"}</td>
+                    <td className="py-1.5 pr-3">{s.identificador || "—"}</td>
+                    <td className="py-1.5 pr-3 text-right whitespace-nowrap">
+                      <button
+                        className="text-brand-600 text-xs font-medium mr-3"
+                        onClick={() => editarSalon(s)}
+                      >
+                        Editar
+                      </button>
+                      <button
+                        className="text-red-600 text-xs font-medium"
+                        onClick={() => eliminarSalon(s.id, s.nombre)}
+                      >
+                        Eliminar
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {salonesFiltrados.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="py-4 text-center text-gray-400">
+                      Todavía no hay salones cargados{filtroSedeSalon ? " para esta sede" : ""}.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
         </section>
       </main>

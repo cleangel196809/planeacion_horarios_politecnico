@@ -173,6 +173,7 @@ const JORNADA_MAP = {
 
 const SEDE_MAP = {
   "SEDE CALLE 73": "CALLE 73",
+  "SEDE CALLE 80": "CALLE 80",
   "SEDE NORTE": "NORTE",
   "SEDE SUR": "SUR"
 };
@@ -311,4 +312,174 @@ async function parseCatalogoRealExcel(buffer) {
   };
 }
 
-module.exports = { parseCatalogoExcel, parseCatalogoRealExcel };
+// --- Importación de docentes (archivo dedicado, independiente del catálogo) ---
+
+function encontrarFilaEncabezadoDocentes(sheet) {
+  for (let r = 1; r <= 5; r++) {
+    const row = sheet.getRow(r);
+    let tieneDocumento = false;
+    let tieneNombre = false;
+    row.eachCell({ includeEmpty: true }, (cell) => {
+      const h = normalizeHeader(unwrapCellValue(cell.value));
+      if (h.includes("DOCUMENTO") || h.includes("CEDULA") || h.includes("NIT")) tieneDocumento = true;
+      if (h.includes("NOMBRE")) tieneNombre = true;
+    });
+    if (tieneDocumento && tieneNombre) return r;
+  }
+  return null;
+}
+
+/**
+ * Lee un archivo Excel dedicado a docentes (una hoja llamada "DOCENTES" si
+ * existe, o si no la primera hoja del archivo) con columnas reconocibles de
+ * documento, nombre, correo y facultad. Se usa desde el módulo de
+ * administración para cargar/actualizar el catálogo de docentes en lote,
+ * independiente de la carga del catálogo de asignaturas.
+ */
+async function parseDocentesExcel(buffer) {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+
+  const sheet = findSheet(workbook, "DOCENTE") || workbook.worksheets[0];
+  if (!sheet) {
+    throw new Error("El archivo no tiene ninguna hoja de cálculo.");
+  }
+
+  const filaEncabezado = encontrarFilaEncabezadoDocentes(sheet);
+  if (!filaEncabezado) {
+    throw new Error(
+      "No se encontraron columnas de documento y nombre en las primeras filas del archivo. " +
+        "Verifica que tenga columnas como DOCUMENTO, NOMBRE (o NOMBRE_COMPLETO), CORREO y FACULTAD."
+    );
+  }
+
+  const headerMap = buildHeaderMap(sheet.getRow(filaEncabezado));
+  const idx = {
+    DOC: headerMap.findIndex((h) => h.includes("DOCUMENTO") || h.includes("CEDULA") || h.includes("NIT")),
+    NOMBRE: headerMap.findIndex((h) => h.includes("NOMBRE")),
+    CORREO: headerMap.findIndex((h) => h.includes("CORREO") || h.includes("EMAIL")),
+    FACULTAD: headerMap.findIndex((h) => h.includes("FACULTAD"))
+  };
+
+  const docentes = [];
+  sheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+    if (rowNumber <= filaEncabezado) return;
+    const get = (i) => (i === -1 ? null : row.getCell(i + 1).value);
+
+    const documento = toStringOrNull(get(idx.DOC));
+    const nombre = toStringOrNull(get(idx.NOMBRE));
+    if (!documento || !nombre) return; // fila vacía o incompleta
+
+    const facultad = toStringOrNull(get(idx.FACULTAD));
+    docentes.push({
+      documento,
+      nombre_completo: nombre,
+      correo_institucional: toStringOrNull(get(idx.CORREO)),
+      facultad: facultad && facultad !== "#N/A" ? facultad : null
+    });
+  });
+
+  if (docentes.length === 0) {
+    throw new Error("No se encontraron filas con documento y nombre diligenciados en el archivo.");
+  }
+
+  return { docentes };
+}
+
+// --- Importación de salones por sede -------------------------------------
+// El archivo de referencia trae una hoja POR SEDE (el nombre de la hoja es
+// el nombre de la sede, p. ej. "CALLE 73", "NORTE", "SUR", "CALLE 80") con
+// columnas PLANTA, NOMBRE DE SALÓN, CAPACIDAD, IDENTIFICADOR UXII y
+// OBSERVACIONES; además puede traer otras hojas (asignaciones, resúmenes)
+// que no tienen esa forma y se ignoran automáticamente.
+
+function encontrarFilaEncabezadoSalones(sheet) {
+  for (let r = 1; r <= 3; r++) {
+    const row = sheet.getRow(r);
+    let tieneNombreSalon = false;
+    let tieneCapacidad = false;
+    row.eachCell({ includeEmpty: true }, (cell) => {
+      const h = normalizeHeader(unwrapCellValue(cell.value));
+      if (h.includes("NOMBRE") && h.includes("SAL")) tieneNombreSalon = true;
+      if (h.includes("CAPACIDAD")) tieneCapacidad = true;
+    });
+    if (tieneNombreSalon && tieneCapacidad) return r;
+  }
+  return null;
+}
+
+/**
+ * Lee el archivo de referencia de salones por sede: recorre TODAS las hojas
+ * y solo procesa las que tengan la forma esperada (nombre de salón +
+ * capacidad); el nombre de cada hoja se usa como el valor de "sede". Hojas
+ * que no calzan (resúmenes, asignaciones de otra naturaleza) se ignoran sin
+ * error, para que el mismo archivo completo se pueda subir tal cual.
+ */
+async function parseSalonesExcel(buffer) {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+
+  const salones = [];
+  const sedesEncontradas = new Set();
+  const hojasIgnoradas = [];
+
+  for (const sheet of workbook.worksheets) {
+    const filaEncabezado = encontrarFilaEncabezadoSalones(sheet);
+    if (!filaEncabezado) {
+      hojasIgnoradas.push(sheet.name);
+      continue;
+    }
+
+    const headerMap = buildHeaderMap(sheet.getRow(filaEncabezado));
+    const idx = {
+      PLANTA: headerMap.findIndex((h) => h.includes("PLANTA") || h.includes("PISO")),
+      NOMBRE: headerMap.findIndex((h) => h.includes("NOMBRE") && h.includes("SAL")),
+      CAPACIDAD: headerMap.findIndex((h) => h.includes("CAPACIDAD")),
+      IDENTIFICADOR: headerMap.findIndex((h) => h.includes("IDENTIFICADOR")),
+      OBSERVACIONES: headerMap.findIndex((h) => h.includes("OBSERVACION"))
+    };
+
+    const sede = normalizeHeader(sheet.name);
+    let plantaActual = null;
+
+    sheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+      if (rowNumber <= filaEncabezado) return;
+      const get = (i) => (i === -1 ? null : row.getCell(i + 1).value);
+
+      const nombre = toStringOrNull(get(idx.NOMBRE));
+      if (!nombre) return; // fila vacía o de resumen (las tablas de totales quedan a la derecha)
+
+      // La columna PLANTA solo trae valor en la primera fila de cada piso
+      // (el resto queda en blanco visualmente); se arrastra el último valor.
+      const planta = toStringOrNull(get(idx.PLANTA));
+      if (planta) plantaActual = planta;
+
+      salones.push({
+        sede,
+        nombre,
+        planta: plantaActual,
+        capacidad: toNumberOrNull(get(idx.CAPACIDAD)),
+        identificador: toStringOrNull(get(idx.IDENTIFICADOR)),
+        observaciones: toStringOrNull(get(idx.OBSERVACIONES))
+      });
+    });
+
+    if (salones.length > 0) sedesEncontradas.add(sede);
+  }
+
+  if (salones.length === 0) {
+    throw new Error(
+      "No se encontró ninguna hoja con columnas de nombre de salón y capacidad. Revisa que el " +
+        "archivo tenga una hoja por sede con esas columnas."
+    );
+  }
+
+  return { salones, sedes: [...sedesEncontradas].sort(), hojasIgnoradas };
+}
+
+module.exports = {
+  parseCatalogoExcel,
+  parseCatalogoRealExcel,
+  parseDocentesExcel,
+  parseSalonesExcel
+};

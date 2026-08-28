@@ -4,6 +4,7 @@
 
 const SEDES = [
   { value: "CALLE 73", label: "Calle 73" },
+  { value: "CALLE 80", label: "Calle 80" },
   { value: "NORTE", label: "Sede Norte" },
   { value: "SUR", label: "Sede Sur" },
   { value: "ASISTIDA POR TECNOLOGIA", label: "Virtual (Asistida por Tecnología)" }

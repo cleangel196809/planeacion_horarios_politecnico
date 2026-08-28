@@ -306,6 +306,7 @@ export default function DecanoApp({ user, facultadOverride, titulo }) {
                 {formularioAbiertoPara === item.id && (
                   <div className="mt-3">
                     <GrupoForm
+                      facultad={facultadOverride || user.facultad}
                       onCancel={() => setFormularioAbiertoPara(null)}
                       onSubmit={(valores) => crearGrupo(item.id, valores)}
                     />
@@ -315,6 +316,7 @@ export default function DecanoApp({ user, facultadOverride, titulo }) {
                 {editando && editando.catalogo_id === item.id && (
                   <div className="mt-3">
                     <GrupoForm
+                      facultad={facultadOverride || user.facultad}
                       initial={editando}
                       onCancel={() => setEditando(null)}
                       onSubmit={(valores) => actualizarGrupo(editando.id, valores)}

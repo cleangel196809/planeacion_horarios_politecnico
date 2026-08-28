@@ -38,13 +38,29 @@ CREATE TABLE IF NOT EXISTS catalogo (
 
 CREATE INDEX IF NOT EXISTS idx_catalogo_periodo_facultad ON catalogo (periodo, facultad);
 
--- Catálogo opcional de docentes (para autocompletar en el formulario).
+-- Catálogo opcional de docentes (para la lista desplegable del formulario).
 CREATE TABLE IF NOT EXISTS docentes (
   documento             TEXT PRIMARY KEY,
   nombre_completo       TEXT NOT NULL,
   correo_institucional  TEXT,
   facultad              TEXT
 );
+
+-- Catálogo de salones por sede (para la lista desplegable de "Salón" al
+-- programar el horario de un grupo). Se carga desde el módulo de
+-- administración (individual o por Excel, una hoja por sede).
+CREATE TABLE IF NOT EXISTS salones (
+  id             SERIAL PRIMARY KEY,
+  sede           TEXT NOT NULL,   -- CALLE 73 | NORTE | SUR | CALLE 80 | ...
+  nombre         TEXT NOT NULL,   -- Ej: 'COCINA 1-101-SEDE CALLE 73'
+  planta         TEXT,            -- Ej: 'Piso 1'
+  capacidad      INTEGER,
+  identificador  TEXT,            -- Ej: 'COC 1'
+  observaciones  TEXT,
+  UNIQUE (sede, nombre)
+);
+
+CREATE INDEX IF NOT EXISTS idx_salones_sede ON salones (sede);
 
 -- Un registro de planeacion = un grupo/oferta concreta de una asignatura del
 -- catálogo, diligenciado por el decano de la facultad correspondiente.
