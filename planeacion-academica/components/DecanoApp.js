@@ -19,10 +19,15 @@ function labelDia(v) {
   return DIAS.find((d) => d.value === v)?.corto || v;
 }
 
-export default function DecanoApp({ user }) {
+// facultadOverride: solo la usa el administrador cuando entra a "actuar
+// como decano" de una facultad puntual (ver AdminApp). Un decano normal
+// nunca la recibe: su facultad ya viene fija en su sesión y el backend la
+// aplica solo, así que aquí basta con no mandar nada distinto.
+export default function DecanoApp({ user, facultadOverride, titulo }) {
   const [mostrarCambiarPassword, setMostrarCambiarPassword] = useState(
     user.debeCambiarPassword
   );
+  const storageKey = `planeacion_periodo_decano_${facultadOverride || user.facultad || "propio"}`;
   const [periodos, setPeriodos] = useState([]);
   const [periodo, setPeriodo] = useState("");
   const [catalogo, setCatalogo] = useState([]);
@@ -34,14 +39,28 @@ export default function DecanoApp({ user }) {
   const [editando, setEditando] = useState(null); // planeacion row
   const [mostrarWizard, setMostrarWizard] = useState(false);
 
+  const qsFacultad = facultadOverride ? `&facultad=${encodeURIComponent(facultadOverride)}` : "";
+
   useEffect(() => {
-    fetch("/api/periodos")
+    const qs = facultadOverride ? `?facultad=${encodeURIComponent(facultadOverride)}` : "";
+    fetch(`/api/periodos${qs}`)
       .then((r) => r.json())
       .then((d) => {
-        setPeriodos(d.periodos || []);
-        if (d.periodos?.length) setPeriodo(d.periodos[0]);
+        const lista = d.periodos || [];
+        setPeriodos(lista);
+        if (lista.length === 0) return;
+        // Recuerda el último período que se vio en este navegador para esta
+        // facultad, en vez de siempre caer al primero de la lista.
+        let recordado = null;
+        try {
+          recordado = window.localStorage.getItem(storageKey);
+        } catch (e) {
+          /* localStorage no disponible: seguimos sin recordar, sin romper nada */
+        }
+        setPeriodo(recordado && lista.includes(recordado) ? recordado : lista[0]);
       });
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [facultadOverride]);
 
   async function cargarDatos(p) {
     if (!p) return;
@@ -49,8 +68,8 @@ export default function DecanoApp({ user }) {
     setError("");
     try {
       const [catRes, planRes] = await Promise.all([
-        fetch(`/api/catalogo?periodo=${encodeURIComponent(p)}`),
-        fetch(`/api/planeacion?periodo=${encodeURIComponent(p)}`)
+        fetch(`/api/catalogo?periodo=${encodeURIComponent(p)}${qsFacultad}`),
+        fetch(`/api/planeacion?periodo=${encodeURIComponent(p)}${qsFacultad}`)
       ]);
       const catData = await catRes.json();
       const planData = await planRes.json();
@@ -73,6 +92,14 @@ export default function DecanoApp({ user }) {
 
   useEffect(() => {
     cargarDatos(periodo);
+    if (periodo) {
+      try {
+        window.localStorage.setItem(storageKey, periodo);
+      } catch (e) {
+        /* localStorage no disponible: no pasa nada, solo no se recuerda */
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [periodo]);
 
   const catalogoFiltrado = useMemo(() => {
@@ -132,6 +159,7 @@ export default function DecanoApp({ user }) {
       {mostrarWizard && (
         <NuevoFormularioWizard
           periodos={periodos}
+          facultadOverride={facultadOverride}
           onClose={() => setMostrarWizard(false)}
           onCreated={(periodoUsado) => {
             if (periodoUsado && periodoUsado !== periodo) {
@@ -143,17 +171,17 @@ export default function DecanoApp({ user }) {
         />
       )}
 
-      <TopBar user={user} titulo="Mi planeación">
+      <TopBar user={user} titulo={titulo || "Mi planeación"}>
         {periodo && (
           <>
             <button className="btn-primary" onClick={() => setMostrarWizard(true)}>
               + Nuevo formulario
             </button>
             <a
-              href={`/api/planeacion/exportar?periodo=${encodeURIComponent(periodo)}`}
+              href={`/api/planeacion/exportar?periodo=${encodeURIComponent(periodo)}${qsFacultad}`}
               className="btn-secondary"
             >
-              Descargar mi Excel
+              Descargar {facultadOverride ? "el" : "mi"} Excel
             </a>
           </>
         )}
@@ -191,8 +219,9 @@ export default function DecanoApp({ user }) {
 
         {!cargando && periodos.length === 0 && (
           <div className="card text-center text-gray-500">
-            Todavía no hay un catálogo cargado para ningún período. Pide al administrador que
-            cargue el Excel base de tu facultad para el próximo ciclo.
+            {facultadOverride
+              ? `Todavía no hay catálogo cargado para ${facultadOverride} en ningún período.`
+              : "Todavía no hay un catálogo cargado para ningún período. Pide al administrador que cargue el Excel base de tu facultad para el próximo ciclo."}
           </div>
         )}
 

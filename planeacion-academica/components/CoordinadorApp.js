@@ -23,6 +23,7 @@ export default function CoordinadorApp({ user }) {
   const [mostrarCambiarPassword, setMostrarCambiarPassword] = useState(
     user.debeCambiarPassword
   );
+  const storageKey = `planeacion_periodo_coordinador_${user.facultad || "propio"}`;
   const [periodos, setPeriodos] = useState([]);
   const [periodo, setPeriodo] = useState("");
   const [catalogo, setCatalogo] = useState([]);
@@ -35,9 +36,18 @@ export default function CoordinadorApp({ user }) {
     fetch("/api/periodos")
       .then((r) => r.json())
       .then((d) => {
-        setPeriodos(d.periodos || []);
-        if (d.periodos?.length) setPeriodo(d.periodos[0]);
+        const lista = d.periodos || [];
+        setPeriodos(lista);
+        if (lista.length === 0) return;
+        let recordado = null;
+        try {
+          recordado = window.localStorage.getItem(storageKey);
+        } catch (e) {
+          /* localStorage no disponible: seguimos sin recordar, sin romper nada */
+        }
+        setPeriodo(recordado && lista.includes(recordado) ? recordado : lista[0]);
       });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function cargarDatos(p) {
@@ -70,6 +80,13 @@ export default function CoordinadorApp({ user }) {
 
   useEffect(() => {
     cargarDatos(periodo);
+    if (periodo) {
+      try {
+        window.localStorage.setItem(storageKey, periodo);
+      } catch (e) {
+        /* localStorage no disponible: no pasa nada, solo no se recuerda */
+      }
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [periodo]);
 

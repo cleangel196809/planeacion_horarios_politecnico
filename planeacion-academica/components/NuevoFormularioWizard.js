@@ -9,7 +9,7 @@ import ProgramacionCicloForm from "@/components/ProgramacionCicloForm";
 // Paso 2) "Programación del ciclo": por cada ciclo del plan, el decano marca
 //         las materias y define sede(s), jornada(s), días y bloques de
 //         horario con los que se crean/reemplazan los grupos de esa materia.
-export default function NuevoFormularioWizard({ periodos, onClose, onCreated }) {
+export default function NuevoFormularioWizard({ periodos, facultadOverride, onClose, onCreated }) {
   const [paso, setPaso] = useState(1);
 
   const [catalogoPorPeriodo, setCatalogoPorPeriodo] = useState({});
@@ -28,9 +28,10 @@ export default function NuevoFormularioWizard({ periodos, onClose, onCreated }) 
     if (listaPeriodos.length === 0) return;
     setCargandoCatalogo(true);
     setErrorCatalogo("");
+    const qsFacultad = facultadOverride ? `&facultad=${encodeURIComponent(facultadOverride)}` : "";
     Promise.all(
       listaPeriodos.map((p) =>
-        fetch(`/api/catalogo?periodo=${encodeURIComponent(p)}`)
+        fetch(`/api/catalogo?periodo=${encodeURIComponent(p)}${qsFacultad}`)
           .then((r) => r.json())
           .then((d) => {
             if (d.error) throw new Error(d.error);
@@ -56,7 +57,7 @@ export default function NuevoFormularioWizard({ periodos, onClose, onCreated }) 
     return todo;
   }, [catalogoPorPeriodo]);
 
-  const facultad = catalogoCompleto[0]?.facultad || "";
+  const facultad = facultadOverride || catalogoCompleto[0]?.facultad || "";
 
   const programas = useMemo(() => {
     const set = new Set(catalogoCompleto.map((c) => c.programa).filter(Boolean));

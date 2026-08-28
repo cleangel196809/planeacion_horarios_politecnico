@@ -50,9 +50,10 @@ export default function ProgramacionCicloForm({
     setCargando(true);
     setError("");
     try {
+      const qsFacultad = facultad ? `&facultad=${encodeURIComponent(facultad)}` : "";
       const [catRes, planRes] = await Promise.all([
-        fetch(`/api/catalogo?periodo=${encodeURIComponent(periodo)}`),
-        fetch(`/api/planeacion?periodo=${encodeURIComponent(periodo)}`)
+        fetch(`/api/catalogo?periodo=${encodeURIComponent(periodo)}${qsFacultad}`),
+        fetch(`/api/planeacion?periodo=${encodeURIComponent(periodo)}${qsFacultad}`)
       ]);
       const catData = await catRes.json();
       const planData = await planRes.json();

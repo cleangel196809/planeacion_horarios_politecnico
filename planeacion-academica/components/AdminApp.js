@@ -1,13 +1,21 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import TopBar from "@/components/TopBar";
 import CambiarPasswordModal from "@/components/CambiarPasswordModal";
+import DecanoApp from "@/components/DecanoApp";
 
 export default function AdminApp({ user }) {
   const [mostrarCambiarPassword, setMostrarCambiarPassword] = useState(
     user.debeCambiarPassword
   );
+
+  // El admin puede "entrar" a la vista de un decano para cualquier
+  // facultad: ve y diligencia el mismo formulario que vería esa facultad,
+  // con los mismos permisos de crear/editar/eliminar (el backend ya lo
+  // permite para el rol admin; esto solo faltaba en la interfaz).
+  const [facultadElegida, setFacultadElegida] = useState("");
+  const [modoDecano, setModoDecano] = useState(false);
 
   const [periodo, setPeriodo] = useState("");
   const [archivo, setArchivo] = useState(null);
@@ -36,6 +44,16 @@ export default function AdminApp({ user }) {
   const [periodoResumen, setPeriodoResumen] = useState("");
   const [resumen, setResumen] = useState(null);
 
+  const facultadesDisponibles = useMemo(() => {
+    const set = new Set(
+      usuarios
+        .filter((u) => u.rol === "decano" || u.rol === "coordinador")
+        .map((u) => u.facultad)
+        .filter(Boolean)
+    );
+    return [...set].sort();
+  }, [usuarios]);
+
   function cargarUsuarios() {
     fetch("/api/admin/usuarios")
       .then((r) => r.json())
@@ -44,6 +62,15 @@ export default function AdminApp({ user }) {
 
   useEffect(() => {
     cargarUsuarios();
+    // Recuerda el último período consultado en "Avance por facultad" para
+    // que no se sienta como si hubiera que volver a cargar todo al recargar
+    // la página.
+    try {
+      const recordado = window.localStorage.getItem("planeacion_periodo_resumen_admin");
+      if (recordado) setPeriodoResumen(recordado);
+    } catch (e) {
+      /* localStorage no disponible: seguimos sin recordar, sin romper nada */
+    }
   }, []);
 
   async function handleImportar(e) {
@@ -143,9 +170,37 @@ export default function AdminApp({ user }) {
   }
 
   useEffect(() => {
-    if (periodoResumen) cargarResumen();
+    if (periodoResumen) {
+      cargarResumen();
+      try {
+        window.localStorage.setItem("planeacion_periodo_resumen_admin", periodoResumen);
+      } catch (e) {
+        /* localStorage no disponible: no pasa nada, solo no se recuerda */
+      }
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [periodoResumen]);
+
+  if (modoDecano && facultadElegida) {
+    return (
+      <div className="min-h-screen">
+        <div className="bg-brand-50 border-b border-brand-200 px-4 py-2 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm text-brand-700">
+            Viendo y diligenciando como decano de <strong>{facultadElegida}</strong> (modo
+            administrador: puedes crear, editar y eliminar grupos igual que su decano).
+          </p>
+          <button className="btn-secondary" onClick={() => setModoDecano(false)}>
+            ← Volver a Administración
+          </button>
+        </div>
+        <DecanoApp
+          user={{ ...user, facultad: facultadElegida, debeCambiarPassword: false }}
+          facultadOverride={facultadElegida}
+          titulo={`Planeación de ${facultadElegida}`}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen">
@@ -466,6 +521,47 @@ export default function AdminApp({ user }) {
               </table>
             </div>
           )}
+        </section>
+
+        <section className="card">
+          <h2 className="font-semibold text-gray-900 mb-1">
+            4. Diligenciar o consultar como una facultad
+          </h2>
+          <p className="text-sm text-gray-500 mb-4">
+            Como administrador puedes entrar a la planeación de cualquier facultad y ver, crear,
+            editar o eliminar sus grupos exactamente igual que su decano (esto también cubre todo
+            lo que puede hacer un coordinador, que solo consulta).
+          </p>
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="min-w-[220px]">
+              <label className="label">Facultad</label>
+              <select
+                className="input"
+                value={facultadElegida}
+                onChange={(e) => setFacultadElegida(e.target.value)}
+              >
+                <option value="">Selecciona una facultad...</option>
+                {facultadesDisponibles.map((f) => (
+                  <option key={f} value={f}>
+                    {f}
+                  </option>
+                ))}
+              </select>
+              {facultadesDisponibles.length === 0 && (
+                <p className="text-xs text-gray-400 mt-1">
+                  Todavía no hay usuarios decano/coordinador creados (crea uno arriba, o carga el
+                  catálogo real que los crea automáticamente).
+                </p>
+              )}
+            </div>
+            <button
+              className="btn-primary"
+              disabled={!facultadElegida}
+              onClick={() => setModoDecano(true)}
+            >
+              Entrar como decano de esta facultad
+            </button>
+          </div>
         </section>
       </main>
     </div>
