@@ -3,8 +3,24 @@
 import { useEffect, useMemo, useState } from "react";
 import { SEDES, JORNADAS, DIAS, BLOQUES_HORARIO } from "@/lib/constants";
 
+// Color de referencia por jornada, solo para la interfaz (chips, cuadrícula
+// resumen semanal). No se guarda en la base de datos.
+const COLOR_JORNADA = {
+  DIURNA: "#2563eb",
+  ESPECIAL: "#7c3aed",
+  NOCHE: "#0f766e",
+  SABADO: "#c2410c",
+  VIRTUAL: "#be185d"
+};
+function colorJornada(v) {
+  return COLOR_JORNADA[v] || "#6b7280";
+}
+
 function claveBloque(b) {
   return `${b.horaInicio}-${b.horaFin}`;
+}
+function claveCelda(dia, claveB) {
+  return `${dia}|${claveB}`;
 }
 
 function labelSede(v) {
@@ -17,13 +33,28 @@ function labelDia(v) {
   return DIAS.find((d) => d.value === v)?.corto || v;
 }
 
+// ¿Este bloque cae dentro del rango horario típico de la jornada? Se usa
+// solo para sugerir visualmente (recuadro punteado) dónde marcar, nunca para
+// restringir: el decano puede marcar cualquier celda igual.
+function bloqueSugerido(jornadaValue, bloque) {
+  const j = JORNADAS.find((x) => x.value === jornadaValue);
+  if (!j) return false;
+  const rangos = j.opciones && j.opciones.length > 0 ? j.opciones : j.horaInicio ? [j] : [];
+  return rangos.some((r) => bloque.horaInicio >= r.horaInicio && bloque.horaInicio < r.horaFin);
+}
+
+function estadoJornadaVacio() {
+  return { sedes: new Set(), celdas: new Set() };
+}
+
 // Paso 2 de la captura: "Programación del ciclo". Dado el programa/plan/
 // periodo ya elegidos en el paso 1, el decano escoge un ciclo de formación y
-// arma, para una o varias materias a la vez, su programación completa:
-// sedes, jornadas, días y bloques de horario de 1:30. "Asignar programación"
-// reemplaza cualquier programación previa de esas materias por la nueva
-// selección (crea un grupo por cada combinación sede × jornada elegida, con
-// el mismo horario para todas).
+// arma la programación por jornada: cada jornada (Diurna, Especial, Noche,
+// Sabatina, Virtual) tiene su propia cuadrícula semanal de días × bloques de
+// horario de 1:30, en vez de compartir un único horario entre todas las
+// jornadas marcadas. "Aplicar esta jornada" reemplaza la programación previa
+// de esa jornada para las materias marcadas (las demás jornadas de esas
+// materias no se tocan).
 export default function ProgramacionCicloForm({
   facultad,
   programa,
@@ -40,11 +71,17 @@ export default function ProgramacionCicloForm({
   const [guardando, setGuardando] = useState(false);
 
   const [cicloSeleccionado, setCicloSeleccionado] = useState("");
+  const [busquedaMateria, setBusquedaMateria] = useState("");
   const [materiasSeleccionadas, setMateriasSeleccionadas] = useState(new Set());
-  const [sedesSeleccionadas, setSedesSeleccionadas] = useState(new Set());
-  const [jornadasSeleccionadas, setJornadasSeleccionadas] = useState(new Set());
-  const [diasSeleccionados, setDiasSeleccionados] = useState(new Set());
-  const [bloquesSeleccionados, setBloquesSeleccionados] = useState(new Set());
+
+  const [jornadaActiva, setJornadaActiva] = useState(JORNADAS[0].value);
+  const [estadoPorJornada, setEstadoPorJornada] = useState(() => {
+    const inicial = {};
+    for (const j of JORNADAS) inicial[j.value] = estadoJornadaVacio();
+    return inicial;
+  });
+
+  const [vista, setVista] = useState("resumen"); // "resumen" | "semana"
 
   async function cargarDatos() {
     setCargando(true);
@@ -113,9 +150,20 @@ export default function ProgramacionCicloForm({
     );
   }, [materiasDelPrograma, cicloSeleccionado]);
 
+  const materiasFiltradas = useMemo(() => {
+    const q = busquedaMateria.trim().toLowerCase();
+    if (!q) return materiasDelCiclo;
+    return materiasDelCiclo.filter((m) => m.asignatura.toLowerCase().includes(q));
+  }, [materiasDelCiclo, busquedaMateria]);
+
   function elegirCiclo(c) {
     setCicloSeleccionado(c);
     setMateriasSeleccionadas(new Set());
+    setBusquedaMateria("");
+    const inicial = {};
+    for (const j of JORNADAS) inicial[j.value] = estadoJornadaVacio();
+    setEstadoPorJornada(inicial);
+    setJornadaActiva(JORNADAS[0].value);
     setMensaje("");
     setError("");
   }
@@ -130,62 +178,143 @@ export default function ProgramacionCicloForm({
   }
 
   function marcarTodasMaterias(marcar) {
-    setMateriasSeleccionadas(marcar ? new Set(materiasDelCiclo.map((m) => m.id)) : new Set());
+    setMateriasSeleccionadas(
+      marcar ? new Set(materiasFiltradas.map((m) => m.id)) : new Set()
+    );
   }
 
-  async function asignarProgramacion() {
-    if (materiasSeleccionadas.size === 0) {
-      setError("Marca al menos una materia del ciclo.");
-      return;
-    }
-    if (sedesSeleccionadas.size === 0 || jornadasSeleccionadas.size === 0) {
-      setError("Selecciona al menos una sede y una jornada.");
-      return;
-    }
-    if (diasSeleccionados.size === 0 || bloquesSeleccionados.size === 0) {
-      setError("Selecciona al menos un día y un bloque de horario.");
+  const estadoActivo = estadoPorJornada[jornadaActiva] || estadoJornadaVacio();
+  const jornadaInfo = JORNADAS.find((j) => j.value === jornadaActiva);
+  const diasVisibles =
+    jornadaActiva === "SABADO" ? DIAS.filter((d) => d.value === "SABADO") : DIAS;
+
+  function actualizarEstadoActivo(fn) {
+    setEstadoPorJornada((prev) => {
+      const actual = prev[jornadaActiva] || estadoJornadaVacio();
+      const nuevoSet = fn(actual);
+      return { ...prev, [jornadaActiva]: nuevoSet };
+    });
+  }
+
+  function toggleSede(valor) {
+    actualizarEstadoActivo((actual) => {
+      const sedes = new Set(actual.sedes);
+      sedes.has(valor) ? sedes.delete(valor) : sedes.add(valor);
+      return { ...actual, sedes };
+    });
+  }
+
+  function toggleCelda(dia, claveB) {
+    actualizarEstadoActivo((actual) => {
+      const celdas = new Set(actual.celdas);
+      const key = claveCelda(dia, claveB);
+      celdas.has(key) ? celdas.delete(key) : celdas.add(key);
+      return { ...actual, celdas };
+    });
+  }
+
+  function toggleFila(bloque) {
+    const claveB = claveBloque(bloque);
+    actualizarEstadoActivo((actual) => {
+      const todasOn = diasVisibles.every((d) => actual.celdas.has(claveCelda(d.value, claveB)));
+      const celdas = new Set(actual.celdas);
+      diasVisibles.forEach((d) => {
+        const key = claveCelda(d.value, claveB);
+        todasOn ? celdas.delete(key) : celdas.add(key);
+      });
+      return { ...actual, celdas };
+    });
+  }
+
+  function toggleColumna(dia) {
+    actualizarEstadoActivo((actual) => {
+      const todasOn = BLOQUES_HORARIO.every((b) =>
+        actual.celdas.has(claveCelda(dia, claveBloque(b)))
+      );
+      const celdas = new Set(actual.celdas);
+      BLOQUES_HORARIO.forEach((b) => {
+        const key = claveCelda(dia, claveBloque(b));
+        todasOn ? celdas.delete(key) : celdas.add(key);
+      });
+      return { ...actual, celdas };
+    });
+  }
+
+  function limpiarJornadaActiva() {
+    setEstadoPorJornada((prev) => ({ ...prev, [jornadaActiva]: estadoJornadaVacio() }));
+  }
+
+  const celdasActivasOrdenadas = useMemo(() => {
+    const idxDia = {};
+    DIAS.forEach((d, i) => (idxDia[d.value] = i));
+    return [...estadoActivo.celdas]
+      .map((k) => {
+        const [dia, claveB] = k.split("|");
+        const bloque = BLOQUES_HORARIO.find((b) => claveBloque(b) === claveB);
+        return { dia, bloque };
+      })
+      .filter((c) => c.bloque)
+      .sort(
+        (a, b) => idxDia[a.dia] - idxDia[b.dia] || a.bloque.horaInicio.localeCompare(b.bloque.horaInicio)
+      );
+  }, [estadoActivo]);
+
+  const listoParaAplicar =
+    materiasSeleccionadas.size > 0 && estadoActivo.sedes.size > 0 && estadoActivo.celdas.size > 0;
+
+  let notaAplicar = "";
+  if (materiasSeleccionadas.size === 0) notaAplicar = "Marca al menos una materia de la lista.";
+  else if (estadoActivo.sedes.size === 0) notaAplicar = "Elige al menos una sede para esta jornada.";
+  else if (estadoActivo.celdas.size === 0) notaAplicar = "Marca al menos una celda en la cuadrícula.";
+  else
+    notaAplicar = `Se aplicará a ${materiasSeleccionadas.size} materia${materiasSeleccionadas.size === 1 ? "" : "s"}: ${estadoActivo.sedes.size} sede${estadoActivo.sedes.size === 1 ? "" : "s"} · ${estadoActivo.celdas.size} franja${estadoActivo.celdas.size === 1 ? "" : "s"} horaria${estadoActivo.celdas.size === 1 ? "" : "s"}.`;
+
+  async function aplicarJornada() {
+    if (!listoParaAplicar) {
+      setError(notaAplicar);
       return;
     }
     setError("");
     setMensaje("");
     setGuardando(true);
 
-    const horarios = [];
-    for (const dia of diasSeleccionados) {
-      for (const clave of bloquesSeleccionados) {
-        const bloque = BLOQUES_HORARIO.find((b) => claveBloque(b) === clave);
-        if (!bloque) continue;
-        horarios.push({ dia, hora_inicio: bloque.horaInicio, hora_fin: bloque.horaFin, salon: null });
-      }
-    }
+    const horarios = celdasActivasOrdenadas.map((c) => ({
+      dia: c.dia,
+      hora_inicio: c.bloque.horaInicio,
+      hora_fin: c.bloque.horaFin,
+      salon: null
+    }));
+    const sedesElegidas = [...estadoActivo.sedes];
+    const materiasElegidas = [...materiasSeleccionadas];
 
     const fallidos = [];
     try {
-      for (const catalogoId of materiasSeleccionadas) {
-        // "Reemplazar lo anterior": se borra cualquier grupo previo de esta
-        // materia antes de crear los nuevos, en vez de acumularlos.
-        const existentes = planeacionPorCatalogo[catalogoId] || [];
+      for (const catalogoId of materiasElegidas) {
+        // Reemplaza solo los grupos de ESTA jornada para esta materia; los
+        // grupos de otras jornadas de la misma materia quedan intactos, para
+        // poder combinar por ejemplo Diurna y Noche en la misma asignatura.
+        const existentes = (planeacionPorCatalogo[catalogoId] || []).filter(
+          (g) => g.jornada === jornadaActiva
+        );
         for (const g of existentes) {
           await fetch(`/api/planeacion/${g.id}`, { method: "DELETE" });
         }
 
-        for (const sede of sedesSeleccionadas) {
-          for (const jornada of jornadasSeleccionadas) {
-            const res = await fetch("/api/planeacion", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                catalogo_id: catalogoId,
-                periodo,
-                modalidad: sede,
-                jornada,
-                horarios
-              })
-            });
-            if (!res.ok) {
-              const data = await res.json().catch(() => ({}));
-              fallidos.push(data.error || `Error programando (id ${catalogoId})`);
-            }
+        for (const sede of sedesElegidas) {
+          const res = await fetch("/api/planeacion", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              catalogo_id: catalogoId,
+              periodo,
+              modalidad: sede,
+              jornada: jornadaActiva,
+              horarios
+            })
+          });
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            fallidos.push(data.error || `Error programando (id ${catalogoId})`);
           }
         }
       }
@@ -193,10 +322,8 @@ export default function ProgramacionCicloForm({
       await cargarDatos();
       await onCreated?.(periodo);
 
-      const nMaterias = materiasSeleccionadas.size;
-      const nBloques = bloquesSeleccionados.size;
       setMensaje(
-        `${nMaterias} materia${nMaterias === 1 ? "" : "s"} programada${nMaterias === 1 ? "" : "s"} en ${nBloques} bloque${nBloques === 1 ? "" : "s"}.`
+        `${labelJornada(jornadaActiva)} aplicada a ${materiasElegidas.length} materia${materiasElegidas.length === 1 ? "" : "s"}.`
       );
       setMateriasSeleccionadas(new Set());
       if (fallidos.length > 0) {
@@ -207,20 +334,12 @@ export default function ProgramacionCicloForm({
     }
   }
 
-  function limpiarSeleccion() {
-    setMateriasSeleccionadas(new Set());
-    setSedesSeleccionadas(new Set());
-    setJornadasSeleccionadas(new Set());
-    setDiasSeleccionados(new Set());
-    setBloquesSeleccionados(new Set());
-    setError("");
-    setMensaje("");
-  }
-
-  async function quitarMateria(catalogoId) {
-    const existentes = planeacionPorCatalogo[catalogoId] || [];
+  async function quitarAsignacion(catalogoId, jornadaValue) {
+    const existentes = (planeacionPorCatalogo[catalogoId] || []).filter(
+      (g) => g.jornada === jornadaValue
+    );
     if (existentes.length === 0) return;
-    if (!confirm("¿Quitar toda la programación asignada a esta materia?")) return;
+    if (!confirm(`¿Quitar la programación de ${labelJornada(jornadaValue)} para esta materia?`)) return;
     for (const g of existentes) {
       await fetch(`/api/planeacion/${g.id}`, { method: "DELETE" });
     }
@@ -228,21 +347,48 @@ export default function ProgramacionCicloForm({
     await onCreated?.(periodo);
   }
 
+  // Una fila por cada combinación materia + jornada que tenga grupos creados
+  // (antes se mezclaban todas las jornadas de una materia en una sola fila).
   const filasAsignadas = useMemo(() => {
-    return materiasDelCiclo
-      .map((item) => {
-        const grupos = planeacionPorCatalogo[item.id] || [];
-        if (grupos.length === 0) return null;
-        const sedes = [...new Set(grupos.map((g) => g.modalidad).filter(Boolean))];
-        const jornadas = [...new Set(grupos.map((g) => g.jornada).filter(Boolean))];
+    const filas = [];
+    for (const item of materiasDelCiclo) {
+      const grupos = planeacionPorCatalogo[item.id] || [];
+      const porJornada = new Map();
+      for (const g of grupos) {
+        const key = g.jornada || "Sin jornada";
+        if (!porJornada.has(key)) porJornada.set(key, []);
+        porJornada.get(key).push(g);
+      }
+      for (const [jornadaValue, gruposJornada] of porJornada) {
+        const sedes = [...new Set(gruposJornada.map((g) => g.modalidad).filter(Boolean))];
         const bloques = [
           ...new Set(
-            grupos.flatMap((g) => (g.horarios || []).map((h) => `${h.hora_inicio}–${h.hora_fin}`))
+            gruposJornada.flatMap((g) =>
+              (g.horarios || []).map((h) => `${labelDia(h.dia)} ${h.hora_inicio}–${h.hora_fin}`)
+            )
           )
         ].sort();
-        return { item, sedes, jornadas, bloques };
-      })
-      .filter(Boolean);
+        filas.push({ item, jornada: jornadaValue, sedes, bloques });
+      }
+    }
+    return filas;
+  }, [materiasDelCiclo, planeacionPorCatalogo]);
+
+  // Todos los horarios ya asignados en el ciclo, para la vista semanal
+  // consolidada (coloreada por jornada).
+  const celdasSemana = useMemo(() => {
+    const mapa = new Map(); // "DIA|horaInicio" -> [{materia, jornada}]
+    for (const item of materiasDelCiclo) {
+      const grupos = planeacionPorCatalogo[item.id] || [];
+      for (const g of grupos) {
+        for (const h of g.horarios || []) {
+          const key = `${h.dia}|${h.hora_inicio}`;
+          if (!mapa.has(key)) mapa.set(key, []);
+          mapa.get(key).push({ materia: item.asignatura, jornada: g.jornada });
+        }
+      }
+    }
+    return mapa;
   }, [materiasDelCiclo, planeacionPorCatalogo]);
 
   return (
@@ -299,27 +445,44 @@ export default function ProgramacionCicloForm({
           </div>
 
           {cicloSeleccionado && (
-            <>
-              <div className="grid sm:grid-cols-4 gap-4">
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="text-xs font-semibold text-brand-600 tracking-wide">
-                      MATERIAS DEL CICLO
-                    </p>
-                    <button
-                      className="text-xs text-brand-600 font-medium"
-                      onClick={() =>
-                        marcarTodasMaterias(materiasSeleccionadas.size !== materiasDelCiclo.length)
-                      }
-                    >
-                      Seleccionar todas
-                    </button>
-                  </div>
-                  <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
-                    {materiasDelCiclo.map((item) => (
+            <div className="grid sm:grid-cols-[240px_1fr] gap-5">
+              {/* Columna materias */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-semibold text-brand-600 tracking-wide">
+                    MATERIAS DEL CICLO
+                  </p>
+                  <button
+                    className="text-xs text-brand-600 font-medium"
+                    onClick={() =>
+                      marcarTodasMaterias(
+                        !materiasFiltradas.every((m) => materiasSeleccionadas.has(m.id)) ||
+                          materiasFiltradas.length === 0
+                      )
+                    }
+                  >
+                    Seleccionar todas
+                  </button>
+                </div>
+                <input
+                  className="input mb-2 text-sm"
+                  placeholder="Buscar materia..."
+                  value={busquedaMateria}
+                  onChange={(e) => setBusquedaMateria(e.target.value)}
+                />
+                <div className="space-y-2 max-h-[520px] overflow-y-auto pr-1">
+                  {materiasFiltradas.map((item) => {
+                    const jornadasAsignadas = [
+                      ...new Set((planeacionPorCatalogo[item.id] || []).map((g) => g.jornada).filter(Boolean))
+                    ];
+                    return (
                       <label
                         key={item.id}
-                        className="flex items-start gap-2 text-sm p-2 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer"
+                        className={`flex items-start gap-2 text-sm p-2 rounded-lg border cursor-pointer ${
+                          materiasSeleccionadas.has(item.id)
+                            ? "border-brand-300 bg-brand-50"
+                            : "border-gray-200 hover:bg-gray-50"
+                        }`}
                       >
                         <input
                           type="checkbox"
@@ -329,194 +492,328 @@ export default function ProgramacionCicloForm({
                             toggleEnSet(materiasSeleccionadas, setMateriasSeleccionadas, item.id)
                           }
                         />
-                        <span>
+                        <span className="flex-1">
                           <span className="block text-gray-900">{item.asignatura}</span>
                           <span className="block text-xs text-gray-400">
                             {item.creditos ?? "—"} créditos
                           </span>
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <p className="text-xs font-semibold text-brand-600 tracking-wide mb-2">SEDES</p>
-                  <div className="space-y-2">
-                    {SEDES.map((s) => (
-                      <label
-                        key={s.value}
-                        className="flex items-center gap-2 text-sm p-2 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer"
-                      >
-                        <input
-                          type="checkbox"
-                          className="accent-brand-600"
-                          checked={sedesSeleccionadas.has(s.value)}
-                          onChange={() =>
-                            toggleEnSet(sedesSeleccionadas, setSedesSeleccionadas, s.value)
-                          }
-                        />
-                        {s.label}
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <p className="text-xs font-semibold text-brand-600 tracking-wide mb-2">JORNADAS</p>
-                  <div className="space-y-2">
-                    {JORNADAS.map((j) => (
-                      <label
-                        key={j.value}
-                        className="flex items-start gap-2 text-sm p-2 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer"
-                      >
-                        <input
-                          type="checkbox"
-                          className="accent-brand-600 mt-0.5"
-                          checked={jornadasSeleccionadas.has(j.value)}
-                          onChange={() =>
-                            toggleEnSet(jornadasSeleccionadas, setJornadasSeleccionadas, j.value)
-                          }
-                        />
-                        <span>
-                          <span className="block">{j.label}</span>
-                          {j.horaInicio && (
-                            <span className="block text-xs text-gray-400">
-                              {j.horaInicio} – {j.horaFin}
+                          {jornadasAsignadas.length > 0 && (
+                            <span className="flex flex-wrap gap-1 mt-1">
+                              {jornadasAsignadas.map((j) => (
+                                <span
+                                  key={j}
+                                  className="text-[10px] font-bold px-1.5 py-0.5 rounded-full"
+                                  style={{ background: `${colorJornada(j)}22`, color: colorJornada(j) }}
+                                >
+                                  {labelJornada(j)}
+                                </span>
+                              ))}
                             </span>
                           )}
                         </span>
                       </label>
-                    ))}
-                  </div>
-
-                  <p className="text-xs font-semibold text-brand-600 tracking-wide mb-2 mt-4">DÍAS</p>
-                  <div className="flex flex-wrap gap-2">
-                    {DIAS.map((d) => (
-                      <label key={d.value} className="checkbox-pill text-xs">
-                        <input
-                          type="checkbox"
-                          className="accent-brand-600"
-                          checked={diasSeleccionados.has(d.value)}
-                          onChange={() =>
-                            toggleEnSet(diasSeleccionados, setDiasSeleccionados, d.value)
-                          }
-                        />
-                        {d.corto}
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <p className="text-xs font-semibold text-brand-600 tracking-wide mb-2">
-                    HORARIO · BLOQUES DE 1:30
-                  </p>
-                  <div className="space-y-1.5">
-                    {BLOQUES_HORARIO.map((b) => {
-                      const clave = claveBloque(b);
-                      return (
-                        <label
-                          key={clave}
-                          className="flex items-center justify-between gap-2 text-sm p-2 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer"
-                        >
-                          <span className="flex items-center gap-2">
-                            <input
-                              type="checkbox"
-                              className="accent-brand-600"
-                              checked={bloquesSeleccionados.has(clave)}
-                              onChange={() =>
-                                toggleEnSet(bloquesSeleccionados, setBloquesSeleccionados, clave)
-                              }
-                            />
-                            {b.horaInicio} – {b.horaFin}
-                          </span>
-                          {b.corto && <span className="text-xs text-gray-400">bloque corto</span>}
-                        </label>
-                      );
-                    })}
-                  </div>
-                  <p className="text-xs text-gray-400 mt-2">
-                    Los bloques fuera de las jornadas seleccionadas quedan solo como referencia
-                    horaria: revisa que calcen con la jornada elegida.
-                  </p>
+                    );
+                  })}
+                  {materiasFiltradas.length === 0 && (
+                    <p className="text-sm text-gray-400">Ninguna materia coincide con la búsqueda.</p>
+                  )}
                 </div>
               </div>
 
-              <div className="flex flex-wrap items-center justify-between gap-3 mt-5">
-                <div className="flex gap-2">
-                  <button className="btn-primary" onClick={asignarProgramacion} disabled={guardando}>
-                    {guardando ? "Asignando..." : "Asignar programación"}
-                  </button>
-                  <button className="btn-secondary" onClick={limpiarSeleccion} disabled={guardando}>
-                    Limpiar selección
-                  </button>
-                </div>
-                <p className="text-xs text-gray-400">
-                  {materiasSeleccionadas.size} materia{materiasSeleccionadas.size === 1 ? "" : "s"} ·{" "}
-                  {sedesSeleccionadas.size} sede{sedesSeleccionadas.size === 1 ? "" : "s"} ·{" "}
-                  {jornadasSeleccionadas.size} jornada{jornadasSeleccionadas.size === 1 ? "" : "s"} ·{" "}
-                  {bloquesSeleccionados.size} bloque{bloquesSeleccionados.size === 1 ? "" : "s"}
-                </p>
-              </div>
-
-              {mensaje && (
-                <p className="text-sm text-brand-700 bg-brand-50 border border-brand-200 rounded-lg px-3 py-2 mt-3">
-                  {mensaje}
-                </p>
-              )}
-              {error && (
-                <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mt-3">
-                  {error}
-                </p>
-              )}
-
-              <div className="mt-6">
+              {/* Columna builder por jornada */}
+              <div>
                 <p className="text-xs font-semibold text-brand-600 tracking-wide mb-2">
-                  PROGRAMACIÓN ASIGNADA · {filasAsignadas.length} registro
-                  {filasAsignadas.length === 1 ? "" : "s"}
+                  1 · ELIGE LA JORNADA A PROGRAMAR
                 </p>
-                {filasAsignadas.length === 0 ? (
-                  <p className="text-sm text-gray-400">Todavía no hay materias programadas en este ciclo.</p>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="text-left text-gray-500 border-b">
-                          <th className="py-1 pr-3">Ciclo</th>
-                          <th className="py-1 pr-3">Materia</th>
-                          <th className="py-1 pr-3">Sedes</th>
-                          <th className="py-1 pr-3">Jornadas</th>
-                          <th className="py-1 pr-3">Bloques</th>
-                          <th className="py-1 pr-3"></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filasAsignadas.map(({ item, sedes, jornadas, bloques }) => (
-                          <tr key={item.id} className="border-b last:border-0">
-                            <td className="py-1.5 pr-3">
-                              {cicloSeleccionado === "Sin ciclo" ? "—" : cicloSeleccionado}
-                            </td>
-                            <td className="py-1.5 pr-3">{item.asignatura}</td>
-                            <td className="py-1.5 pr-3">{sedes.map(labelSede).join(", ")}</td>
-                            <td className="py-1.5 pr-3">{jornadas.map(labelJornada).join(", ")}</td>
-                            <td className="py-1.5 pr-3">{bloques.join(" · ")}</td>
-                            <td className="py-1.5 pr-3 text-right">
-                              <button
-                                className="text-red-600 text-xs font-medium"
-                                onClick={() => quitarMateria(item.id)}
-                              >
-                                Quitar
-                              </button>
-                            </td>
-                          </tr>
+                <div className="flex flex-wrap gap-2 mb-4">
+                  {JORNADAS.map((j) => {
+                    const n = (estadoPorJornada[j.value] || estadoJornadaVacio()).celdas.size;
+                    const rango =
+                      j.opciones && j.opciones.length > 0
+                        ? "Ver opciones"
+                        : j.horaInicio
+                        ? `${j.horaInicio} – ${j.horaFin}`
+                        : "";
+                    return (
+                      <button
+                        key={j.value}
+                        onClick={() => setJornadaActiva(j.value)}
+                        className={`relative rounded-lg border px-3 py-2 text-left text-xs font-semibold transition ${
+                          jornadaActiva === j.value
+                            ? "border-brand-600 bg-brand-50 text-brand-700"
+                            : "border-gray-200 text-gray-600 hover:bg-gray-50"
+                        }`}
+                      >
+                        {j.label}
+                        <span className="block font-normal text-[10px] text-gray-400">{rango}</span>
+                        {n > 0 && (
+                          <span
+                            className="absolute -top-2 -right-2 text-white text-[10px] font-bold rounded-full min-w-[17px] h-[17px] flex items-center justify-center px-1"
+                            style={{ background: colorJornada(j.value) }}
+                          >
+                            {n}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <p className="text-xs font-semibold text-brand-600 tracking-wide mb-2">
+                  2 · SEDE(S) DE ESTA JORNADA
+                </p>
+                <div className="flex flex-wrap gap-2 mb-4">
+                  {SEDES.map((s) => (
+                    <button
+                      key={s.value}
+                      onClick={() => toggleSede(s.value)}
+                      className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                        estadoActivo.sedes.has(s.value)
+                          ? "bg-brand-600 border-brand-600 text-white"
+                          : "border-gray-300 text-gray-700 hover:bg-gray-50"
+                      }`}
+                    >
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <p className="text-xs font-semibold text-brand-600 tracking-wide">
+                    3 · MARCA LOS DÍAS Y HORAS
+                  </p>
+                  <button className="text-xs text-gray-500 border border-gray-300 rounded-lg px-2 py-1" onClick={limpiarJornadaActiva}>
+                    Limpiar esta jornada
+                  </button>
+                </div>
+                <p className="text-xs text-gray-400 mb-2">
+                  Clic en una celda para marcarla; clic en un día o un bloque marca/quita toda la
+                  fila o columna. El recuadro punteado sugiere el horario típico de{" "}
+                  {jornadaInfo?.label.toLowerCase()}.
+                </p>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs border-collapse">
+                    <thead>
+                      <tr>
+                        <th className="border border-gray-200 bg-gray-50"></th>
+                        {diasVisibles.map((d) => (
+                          <th
+                            key={d.value}
+                            className="border border-gray-200 bg-gray-50 py-1.5 font-semibold text-gray-500 cursor-pointer hover:bg-brand-50 hover:text-brand-700"
+                            onClick={() => toggleColumna(d.value)}
+                          >
+                            {d.corto}
+                          </th>
                         ))}
-                      </tbody>
-                    </table>
-                  </div>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {BLOQUES_HORARIO.map((b) => {
+                        const claveB = claveBloque(b);
+                        const sugerido = bloqueSugerido(jornadaActiva, b);
+                        return (
+                          <tr key={claveB}>
+                            <td
+                              className="border border-gray-200 bg-gray-50 px-2 py-1 whitespace-nowrap text-gray-500 font-medium cursor-pointer hover:bg-brand-50 hover:text-brand-700"
+                              onClick={() => toggleFila(b)}
+                            >
+                              {b.horaInicio}–{b.horaFin}
+                              {b.corto ? " *" : ""}
+                            </td>
+                            {diasVisibles.map((d) => {
+                              const on = estadoActivo.celdas.has(claveCelda(d.value, claveB));
+                              return (
+                                <td
+                                  key={d.value}
+                                  onClick={() => toggleCelda(d.value, claveB)}
+                                  className="border border-gray-200 h-8 cursor-pointer relative"
+                                  style={{
+                                    background: on ? colorJornada(jornadaActiva) : sugerido ? "#fafdff" : undefined
+                                  }}
+                                >
+                                  {!on && sugerido && (
+                                    <span className="absolute inset-1 border border-dashed border-brand-200 rounded-sm" />
+                                  )}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="flex flex-wrap gap-1.5 mt-3 mb-1">
+                  {celdasActivasOrdenadas.length === 0 ? (
+                    <span className="text-xs text-gray-400">
+                      Todavía no has marcado ningún día/hora para esta jornada.
+                    </span>
+                  ) : (
+                    celdasActivasOrdenadas.map((c) => (
+                      <span
+                        key={claveCelda(c.dia, claveBloque(c.bloque))}
+                        className="inline-flex items-center gap-1.5 rounded-full border border-brand-200 bg-brand-50 text-brand-700 text-xs font-medium pl-2.5 pr-1 py-1"
+                      >
+                        {labelDia(c.dia)} {c.bloque.horaInicio}–{c.bloque.horaFin}
+                        <button
+                          className="text-brand-300 hover:text-brand-700 leading-none px-1"
+                          onClick={() => toggleCelda(c.dia, claveBloque(c.bloque))}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-3 mt-4 pt-3 border-t border-gray-200">
+                  <p className="text-xs text-gray-400">{notaAplicar}</p>
+                  <button className="btn-primary" onClick={aplicarJornada} disabled={guardando || !listoParaAplicar}>
+                    {guardando ? "Aplicando..." : `Aplicar ${jornadaInfo?.label || ""} a las materias marcadas →`}
+                  </button>
+                </div>
+
+                {mensaje && (
+                  <p className="text-sm text-brand-700 bg-brand-50 border border-brand-200 rounded-lg px-3 py-2 mt-3">
+                    {mensaje}
+                  </p>
                 )}
+                {error && (
+                  <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mt-3">
+                    {error}
+                  </p>
+                )}
+
+                <div className="mt-6">
+                  <div className="flex gap-2 mb-3">
+                    <button
+                      className={`flex-1 rounded-lg border px-3 py-2 text-xs font-semibold ${
+                        vista === "resumen"
+                          ? "border-brand-600 bg-brand-50 text-brand-700"
+                          : "border-gray-200 text-gray-500"
+                      }`}
+                      onClick={() => setVista("resumen")}
+                    >
+                      Programación asignada · {filasAsignadas.length} registro
+                      {filasAsignadas.length === 1 ? "" : "s"}
+                    </button>
+                    <button
+                      className={`flex-1 rounded-lg border px-3 py-2 text-xs font-semibold ${
+                        vista === "semana"
+                          ? "border-brand-600 bg-brand-50 text-brand-700"
+                          : "border-gray-200 text-gray-500"
+                      }`}
+                      onClick={() => setVista("semana")}
+                    >
+                      Vista semanal (todas las jornadas)
+                    </button>
+                  </div>
+
+                  {vista === "resumen" ? (
+                    filasAsignadas.length === 0 ? (
+                      <p className="text-sm text-gray-400">
+                        Todavía no hay materias programadas en este ciclo.
+                      </p>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="text-left text-gray-500 border-b">
+                              <th className="py-1 pr-3">Materia</th>
+                              <th className="py-1 pr-3">Jornada</th>
+                              <th className="py-1 pr-3">Sedes</th>
+                              <th className="py-1 pr-3">Horario</th>
+                              <th className="py-1 pr-3"></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {filasAsignadas.map(({ item, jornada, sedes, bloques }) => (
+                              <tr key={`${item.id}-${jornada}`} className="border-b last:border-0">
+                                <td className="py-1.5 pr-3">{item.asignatura}</td>
+                                <td className="py-1.5 pr-3">
+                                  <span
+                                    className="text-xs font-bold px-2 py-0.5 rounded-full"
+                                    style={{ background: `${colorJornada(jornada)}1c`, color: colorJornada(jornada) }}
+                                  >
+                                    {labelJornada(jornada)}
+                                  </span>
+                                </td>
+                                <td className="py-1.5 pr-3">{sedes.map(labelSede).join(", ")}</td>
+                                <td className="py-1.5 pr-3">{bloques.join(" · ")}</td>
+                                <td className="py-1.5 pr-3 text-right">
+                                  <button
+                                    className="text-red-600 text-xs font-medium"
+                                    onClick={() => quitarAsignacion(item.id, jornada)}
+                                  >
+                                    Quitar
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )
+                  ) : (
+                    <div>
+                      <div className="flex flex-wrap gap-3 mb-3">
+                        {JORNADAS.map((j) => (
+                          <span key={j.value} className="inline-flex items-center gap-1.5 text-xs text-gray-500">
+                            <span
+                              className="inline-block w-2.5 h-2.5 rounded-sm"
+                              style={{ background: colorJornada(j.value) }}
+                            />
+                            {j.label}
+                          </span>
+                        ))}
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs border-collapse">
+                          <thead>
+                            <tr>
+                              <th className="border border-gray-200 bg-gray-50"></th>
+                              {DIAS.map((d) => (
+                                <th key={d.value} className="border border-gray-200 bg-gray-50 py-1.5 font-semibold text-gray-500">
+                                  {d.corto}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {BLOQUES_HORARIO.map((b) => (
+                              <tr key={claveBloque(b)}>
+                                <td className="border border-gray-200 bg-gray-50 px-2 py-1 whitespace-nowrap text-gray-500 font-medium">
+                                  {b.horaInicio}–{b.horaFin}
+                                </td>
+                                {DIAS.map((d) => {
+                                  const entradas = celdasSemana.get(`${d.value}|${b.horaInicio}`) || [];
+                                  return (
+                                    <td key={d.value} className="border border-gray-200 align-top p-0.5">
+                                      {entradas.map((e, i) => (
+                                        <div
+                                          key={i}
+                                          title={`${e.materia} · ${labelJornada(e.jornada)}`}
+                                          className="text-[9px] font-bold text-white rounded px-1 py-0.5 mb-0.5 truncate"
+                                          style={{ background: colorJornada(e.jornada) }}
+                                        >
+                                          {e.materia}
+                                        </div>
+                                      ))}
+                                    </td>
+                                  );
+                                })}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
-            </>
+            </div>
           )}
         </>
       )}
