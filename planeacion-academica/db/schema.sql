@@ -5,11 +5,14 @@ CREATE TABLE IF NOT EXISTS usuarios (
   id            SERIAL PRIMARY KEY,
   username      TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
-  rol           TEXT NOT NULL CHECK (rol IN ('admin', 'decano')),
+  rol           TEXT NOT NULL CHECK (rol IN ('admin', 'decano', 'coordinador')),
   nombre        TEXT NOT NULL,
   facultad      TEXT,              -- NULL para admin; obligatorio para decano
+  email         TEXT,              -- para el enlace de "olvidé mi contraseña"
   activo        BOOLEAN NOT NULL DEFAULT TRUE,
   debe_cambiar_password BOOLEAN NOT NULL DEFAULT TRUE,
+  reset_token           TEXT,
+  reset_token_expira    TIMESTAMPTZ,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

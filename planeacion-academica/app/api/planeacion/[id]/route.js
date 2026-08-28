@@ -1,5 +1,5 @@
 const { query, withTransaction } = require("@/lib/db");
-const { requireUser } = require("@/lib/session");
+const { requireEditor } = require("@/lib/session");
 const { jsonError, ok } = require("@/lib/apiHelpers");
 
 function validarHorarios(horarios) {
@@ -33,7 +33,7 @@ async function getOwned(id, user) {
 
 async function PUT(req, { params }) {
   try {
-    const user = requireUser();
+    const user = requireEditor();
     const id = Number(params.id);
     const existing = await getOwned(id, user);
 
@@ -103,7 +103,7 @@ async function PUT(req, { params }) {
 
 async function DELETE(req, { params }) {
   try {
-    const user = requireUser();
+    const user = requireEditor();
     const id = Number(params.id);
     await getOwned(id, user);
     await query("DELETE FROM planeacion WHERE id = $1", [id]);

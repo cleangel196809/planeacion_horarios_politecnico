@@ -14,7 +14,10 @@ async function GET(req) {
       err.status = 400;
       throw err;
     }
-    const facultad = user.rol === "decano" ? user.facultad : searchParams.get("facultad");
+    const facultad =
+      user.rol === "decano" || user.rol === "coordinador"
+        ? user.facultad
+        : searchParams.get("facultad");
     if (!facultad) {
       const err = new Error("Debes indicar la facultad a exportar.");
       err.status = 400;

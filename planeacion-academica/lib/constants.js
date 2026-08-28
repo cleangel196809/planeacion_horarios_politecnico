@@ -23,7 +23,31 @@ const JORNADAS = [
       { horaInicio: "07:00", horaFin: "12:00", label: "Sabatina diurna (7:00 - 12:00)" },
       { horaInicio: "13:00", horaFin: "19:00", label: "Sabatina tarde (13:00 - 19:00)" }
     ]
-  }
+  },
+  // Se usa para asignaturas que se dictan de forma asistida por tecnología
+  // (marcadas con FLG_VIRTUAL en el archivo base de carreras y materias).
+  { value: "VIRTUAL", label: "Virtual", horaInicio: "07:00", horaFin: "09:00" }
+];
+
+// Ciclos de formación disponibles para el selector inicial del formulario
+// nuevo del decano (1 a 10, tal como se manejan en los planes de estudio).
+const CICLOS = Array.from({ length: 10 }, (_, i) => String(i + 1));
+
+// Bloques de horario de 1:30 (90 min) usados por la pantalla "Programación
+// del ciclo" del decano: van de 7:00 a 21:00; el último queda corto (30 min)
+// para completar la franja nocturna. Cada bloque seleccionado, combinado con
+// los días elegidos, genera las filas de planeacion_horario del grupo.
+const BLOQUES_HORARIO = [
+  { horaInicio: "07:00", horaFin: "08:30" },
+  { horaInicio: "08:30", horaFin: "10:00" },
+  { horaInicio: "10:00", horaFin: "11:30" },
+  { horaInicio: "11:30", horaFin: "13:00" },
+  { horaInicio: "13:00", horaFin: "14:30" },
+  { horaInicio: "14:30", horaFin: "16:00" },
+  { horaInicio: "16:00", horaFin: "17:30" },
+  { horaInicio: "17:30", horaFin: "19:00" },
+  { horaInicio: "19:00", horaFin: "20:30" },
+  { horaInicio: "20:30", horaFin: "21:00", corto: true }
 ];
 
 const ESTADOS = [
@@ -45,4 +69,4 @@ const DIAS = [
   { value: "SABADO", label: "Sábado", corto: "SAB" }
 ];
 
-module.exports = { SEDES, JORNADAS, ESTADOS, DIAS };
+module.exports = { SEDES, JORNADAS, ESTADOS, DIAS, CICLOS, BLOQUES_HORARIO };

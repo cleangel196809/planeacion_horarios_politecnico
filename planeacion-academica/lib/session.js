@@ -29,4 +29,18 @@ function requireAdmin() {
   return user;
 }
 
-module.exports = { getCurrentUser, requireUser, requireAdmin };
+// El coordinador es un rol de SOLO CONSULTA sobre los datos de su facultad:
+// puede ver el catálogo, la planeación y descargar el Excel, pero no puede
+// crear, editar ni eliminar nada. Usar esto (en vez de requireUser) en toda
+// ruta que cree/actualice/borre catálogo o planeación.
+function requireEditor() {
+  const user = requireUser();
+  if (user.rol !== "admin" && user.rol !== "decano") {
+    const err = new Error("Tu rol solo tiene permiso de consulta.");
+    err.status = 403;
+    throw err;
+  }
+  return user;
+}
+
+module.exports = { getCurrentUser, requireUser, requireAdmin, requireEditor };

@@ -1,5 +1,15 @@
+const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+
+const RESET_TOKEN_TTL_MS = 30 * 60 * 1000; // 30 minutos
+
+function generarTokenRecuperacion() {
+  return {
+    token: crypto.randomBytes(32).toString("hex"),
+    expira: new Date(Date.now() + RESET_TOKEN_TTL_MS)
+  };
+}
 
 const COOKIE_NAME = "planeacion_session";
 const TOKEN_TTL = "12h";
@@ -47,5 +57,6 @@ module.exports = {
   hashPassword,
   verifyPassword,
   signSession,
-  verifySession
+  verifySession,
+  generarTokenRecuperacion
 };

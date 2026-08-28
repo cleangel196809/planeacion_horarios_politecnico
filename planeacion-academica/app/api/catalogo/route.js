@@ -14,7 +14,9 @@ async function GET(req) {
     }
 
     const facultad =
-      user.rol === "decano" ? user.facultad : searchParams.get("facultad");
+      user.rol === "decano" || user.rol === "coordinador"
+        ? user.facultad
+        : searchParams.get("facultad");
 
     const params = [periodo];
     let where = "WHERE c.periodo = $1";

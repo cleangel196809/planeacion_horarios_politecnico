@@ -5,5 +5,6 @@ export default function Home() {
   const user = getCurrentUser();
   if (!user) redirect("/login");
   if (user.rol === "admin") redirect("/admin");
+  if (user.rol === "coordinador") redirect("/coordinador");
   redirect("/decano");
 }

@@ -7,7 +7,7 @@ async function GET() {
     const user = requireUser();
     const params = [];
     let where = "";
-    if (user.rol === "decano") {
+    if (user.rol === "decano" || user.rol === "coordinador") {
       where = "WHERE facultad = $1";
       params.push(user.facultad);
     }

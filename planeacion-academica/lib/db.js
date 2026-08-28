@@ -1,6 +1,30 @@
-const { Pool } = require("pg");
-
 let pool;
+
+// En Vercel la conexión TCP normal (puerto 5432) a Neon funciona sin
+// problema, así que ahí se sigue usando el driver "pg" de siempre. Muchas
+// redes locales/institucionales, en cambio, bloquean el puerto 5432 de
+// salida (es justo lo que le pasó a este proyecto al intentar correr
+// scripts/seed.js en local). Para poder levantar la app en local sin
+// depender de que esa red permita el 5432, cuando NO se corre en Vercel se
+// usa el driver "serverless" de Neon (@neondatabase/serverless): habla el
+// mismo protocolo de Postgres pero lo túnel por WebSocket sobre el puerto
+// 443 (HTTPS), que casi ninguna red bloquea. Su Pool/Client tiene la misma
+// API que "pg" (pool.query, pool.connect, BEGIN/COMMIT, etc.), así que el
+// resto de este archivo y del código que lo usa no necesita cambiar.
+function crearPool(connectionString) {
+  if (process.env.VERCEL) {
+    const { Pool } = require("pg");
+    const esLocalhost = /localhost|127\.0\.0\.1/.test(connectionString);
+    return new Pool({
+      connectionString,
+      ssl: esLocalhost ? undefined : { rejectUnauthorized: false }
+    });
+  }
+
+  const { Pool, neonConfig } = require("@neondatabase/serverless");
+  neonConfig.webSocketConstructor = require("ws");
+  return new Pool({ connectionString });
+}
 
 function getPool() {
   if (!pool) {
@@ -18,11 +42,7 @@ function getPool() {
         "Falta la variable de entorno DATABASE_URL (cadena de conexión a PostgreSQL)."
       );
     }
-    const esLocal = /localhost|127\.0\.0\.1/.test(connectionString);
-    pool = new Pool({
-      connectionString,
-      ssl: esLocal ? undefined : { rejectUnauthorized: false }
-    });
+    pool = crearPool(connectionString);
   }
   return pool;
 }

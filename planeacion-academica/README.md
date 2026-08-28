@@ -59,7 +59,17 @@ el Excel final consolidado, con la misma estructura de la plantilla
    `DOCENTES`, se carga para ofrecer autocompletar al buscar un docente en
    el formulario (no es obligatorio: si no existe esa hoja, el decano
    simplemente escribe el nombre/documento a mano).
-7. **Hojas `REFLEJOS` y `CERRADOS`** se conservan en el Excel exportado
+7. **Recuperación de contraseña**: cada usuario decano puede tener un
+   correo asociado (lo define el admin al crearlo, o lo edita después).
+   Desde el login, "¿Olvidaste tu contraseña?" envía un enlace de un solo
+   uso, válido 30 minutos, a ese correo. El envío usa SMTP genérico
+   (`lib/email.js`) — funciona con el correo de tu institución, Gmail,
+   Outlook, etc. Si no configuras las variables `SMTP_*`, la aplicación
+   sigue funcionando con normalidad: el enlace simplemente no se envía
+   por correo (queda registrado en la base de datos y en los logs del
+   servidor), para que el administrador pueda restablecer la clave a
+   mano mientras tanto.
+8. **Hojas `REFLEJOS` y `CERRADOS`** se conservan en el Excel exportado
    con los mismos encabezados de la plantilla, pero vacías: no forman
    parte de este aplicativo de planeación (pertenecen al flujo de
    reflejos/cierres que ya maneja el sistema de Consulta de Horarios
@@ -67,6 +77,11 @@ el Excel final consolidado, con la misma estructura de la plantilla
 
 Si alguno de estos supuestos no encaja con cómo trabaja realmente tu
 institución, son fáciles de ajustar — dímelo y los cambiamos.
+
+> ¿Quieres primero correrlo en tu propio computador y subirlo a GitHub
+> usando VS Code, paso a paso? Ve directo a **`GUIA_LOCAL_VSCODE.md`** —
+> cubre exactamente eso, desde instalar lo necesario hasta publicar el
+> repositorio, antes de llegar a Vercel.
 
 ## 2. Requisitos antes de desplegar
 
@@ -168,18 +183,33 @@ npm run dev
 
 Abre `http://localhost:3000`, inicia sesión con `admin` / `admin123`.
 
-## 6. Notas y limitaciones conocidas
+Si quieres probar también la recuperación de contraseña por correo, agrega
+además a tus variables de entorno `SMTP_HOST`, `SMTP_USER` y `SMTP_PASS`
+(ver `.env.example`). Sin esas variables, el enlace de recuperación no se
+envía por correo pero sí queda impreso en la terminal donde corre
+`npm run dev`, así puedes seguir probando el flujo completo.
 
-- El envío de correos (por ejemplo para recuperar contraseña) **no está
-  incluido** — si un decano olvida su contraseña, el administrador la
-  restablece creando de nuevo el usuario o pídeme agregar esa función.
-- `npm audit` reporta un par de vulnerabilidades moderadas en dependencias
-  transitivas (`postcss` vía Next.js en tiempo de compilación, y `uuid` vía
-  ExcelJS). No afectan a un usuario final de la aplicación ya desplegada;
-  se dejaron así para no arriesgar una versión mayor (`exceljs@5`) sin
-  poder probarla a fondo contigo. Si prefieres que se actualicen, lo
-  hacemos y volvemos a probar el flujo completo.
+## 6. Si ya habías desplegado una versión anterior (sin recuperación de contraseña)
+
+Solo necesitas correr una vez, sobre tu base de datos ya existente, el
+archivo `db/migracion_recuperar_password.sql` (agrega las columnas
+`email`, `reset_token` y `reset_token_expira` a la tabla `usuarios`; es
+segura de ejecutar más de una vez). Si vas a crear la base de datos desde
+cero, no necesitas este paso — ya está incluido en `db/schema.sql`.
+
+## 7. Notas y limitaciones conocidas
+
+- `npm audit` reporta vulnerabilidades en dos dependencias transitivas:
+  `postcss` (usado internamente por Next.js en tiempo de compilación, no en
+  producción) y `uuid` (usado internamente por ExcelJS). Corregirlas de
+  raíz implica subir a Next.js 15 o a ExcelJS 5 — cambios mayores que
+  preferí no meter en este mismo paquete sin volver a probar todo el flujo
+  contigo. `nodemailer`, que sí es nuevo en esta versión, se dejó en su
+  última versión estable y sin vulnerabilidades conocidas. Si quieres que
+  aborde la actualización de Next.js/ExcelJS como una tarea aparte
+  (con su propia ronda de pruebas), lo hacemos con gusto.
 - Este proyecto fue probado de punta a punta (login, carga de catálogo,
   creación/edición/eliminación de grupos, permisos por facultad, cambio de
-  contraseña obligatorio y exportación) usando el archivo Excel que
+  contraseña obligatorio, recuperación de contraseña por correo —incluido
+  el caso sin SMTP configurado— y exportación) usando el archivo Excel que
   compartiste como catálogo de prueba.

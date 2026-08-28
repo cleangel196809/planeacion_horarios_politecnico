@@ -3,10 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import TopBar from "@/components/TopBar";
 import CambiarPasswordModal from "@/components/CambiarPasswordModal";
-import GrupoForm from "@/components/GrupoForm";
 import EstadoBadge from "@/components/EstadoBadge";
-import NuevoFormularioWizard from "@/components/NuevoFormularioWizard";
-import ConfirmarCatalogoReal from "@/components/ConfirmarCatalogoReal";
 import { SEDES, JORNADAS, DIAS } from "@/lib/constants";
 
 function labelSede(v) {
@@ -19,7 +16,10 @@ function labelDia(v) {
   return DIAS.find((d) => d.value === v)?.corto || v;
 }
 
-export default function DecanoApp({ user }) {
+// Vista de solo consulta para el rol "coordinador": ve exactamente los mismos
+// datos que el decano de su facultad (catálogo, grupos creados, estado y
+// horario), pero sin ningún botón para crear, editar ni eliminar nada.
+export default function CoordinadorApp({ user }) {
   const [mostrarCambiarPassword, setMostrarCambiarPassword] = useState(
     user.debeCambiarPassword
   );
@@ -30,9 +30,6 @@ export default function DecanoApp({ user }) {
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState("");
   const [busqueda, setBusqueda] = useState("");
-  const [formularioAbiertoPara, setFormularioAbiertoPara] = useState(null); // catalogo_id
-  const [editando, setEditando] = useState(null); // planeacion row
-  const [mostrarWizard, setMostrarWizard] = useState(false);
 
   useEffect(() => {
     fetch("/api/periodos")
@@ -73,6 +70,7 @@ export default function DecanoApp({ user }) {
 
   useEffect(() => {
     cargarDatos(periodo);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [periodo]);
 
   const catalogoFiltrado = useMemo(() => {
@@ -83,83 +81,29 @@ export default function DecanoApp({ user }) {
     );
   }, [catalogo, busqueda]);
 
-  // Filas que llegaron del archivo real de carreras y materias (traen su
-  // propio GRUPO) y que todavía no tienen ningún grupo de planeación creado:
-  // están pendientes de que el decano las revise y confirme.
-  const pendientesConfirmar = useMemo(
-    () =>
-      catalogoFiltrado.filter(
-        (c) => c.grupo && !(planeacionPorCatalogo[c.id]?.length > 0)
-      ),
-    [catalogoFiltrado, planeacionPorCatalogo]
-  );
-
-  async function crearGrupo(catalogoId, valores) {
-    const res = await fetch("/api/planeacion", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ catalogo_id: catalogoId, periodo, ...valores })
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error);
-    setFormularioAbiertoPara(null);
-    await cargarDatos(periodo);
-  }
-
-  async function actualizarGrupo(id, valores) {
-    const res = await fetch(`/api/planeacion/${id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(valores)
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error);
-    setEditando(null);
-    await cargarDatos(periodo);
-  }
-
-  async function eliminarGrupo(id) {
-    if (!confirm("¿Eliminar este grupo? Esta acción no se puede deshacer.")) return;
-    const res = await fetch(`/api/planeacion/${id}`, { method: "DELETE" });
-    if (res.ok) await cargarDatos(periodo);
-  }
-
   return (
     <div className="min-h-screen">
       {mostrarCambiarPassword && (
         <CambiarPasswordModal onDone={() => setMostrarCambiarPassword(false)} />
       )}
-      {mostrarWizard && (
-        <NuevoFormularioWizard
-          periodos={periodos}
-          onClose={() => setMostrarWizard(false)}
-          onCreated={(periodoUsado) => {
-            if (periodoUsado && periodoUsado !== periodo) {
-              setPeriodo(periodoUsado); // el useEffect de [periodo] recarga los datos
-            } else {
-              cargarDatos(periodo);
-            }
-          }}
-        />
-      )}
 
-      <TopBar user={user} titulo="Mi planeación">
+      <TopBar user={user} titulo="Consulta de planeación">
         {periodo && (
-          <>
-            <button className="btn-primary" onClick={() => setMostrarWizard(true)}>
-              + Nuevo formulario
-            </button>
-            <a
-              href={`/api/planeacion/exportar?periodo=${encodeURIComponent(periodo)}`}
-              className="btn-secondary"
-            >
-              Descargar mi Excel
-            </a>
-          </>
+          <a
+            href={`/api/planeacion/exportar?periodo=${encodeURIComponent(periodo)}`}
+            className="btn-secondary"
+          >
+            Descargar Excel
+          </a>
         )}
       </TopBar>
 
       <main className="max-w-6xl mx-auto px-4 py-6 space-y-4">
+        <p className="text-xs text-gray-400 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+          Estás en modo de solo consulta: puedes ver el catálogo y los grupos de tu facultad, y
+          descargar el Excel, pero no puedes crear, editar ni eliminar información.
+        </p>
+
         <div className="flex flex-wrap items-end gap-3">
           <div>
             <label className="label">Período</label>
@@ -191,18 +135,11 @@ export default function DecanoApp({ user }) {
 
         {!cargando && periodos.length === 0 && (
           <div className="card text-center text-gray-500">
-            Todavía no hay un catálogo cargado para ningún período. Pide al administrador que
-            cargue el Excel base de tu facultad para el próximo ciclo.
+            Todavía no hay un catálogo cargado para ningún período en tu facultad.
           </div>
         )}
 
         {cargando && <p className="text-sm text-gray-500">Cargando...</p>}
-
-        <ConfirmarCatalogoReal
-          items={pendientesConfirmar}
-          periodo={periodo}
-          onConfirmado={() => cargarDatos(periodo)}
-        />
 
         <div className="space-y-3">
           {catalogoFiltrado.map((item) => {
@@ -216,14 +153,9 @@ export default function DecanoApp({ user }) {
                       {item.programa} · Plan {item.plan} · Ciclo {item.ciclo} · {item.creditos} créditos
                     </p>
                   </div>
-                  <button
-                    className="btn-primary"
-                    onClick={() =>
-                      setFormularioAbiertoPara(formularioAbiertoPara === item.id ? null : item.id)
-                    }
-                  >
-                    + Agregar grupo
-                  </button>
+                  <span className="badge bg-gray-100 text-gray-500 text-xs">
+                    {grupos.length} grupo{grupos.length === 1 ? "" : "s"}
+                  </span>
                 </div>
 
                 {grupos.length > 0 && (
@@ -237,7 +169,6 @@ export default function DecanoApp({ user }) {
                           <th className="py-1 pr-3">Días</th>
                           <th className="py-1 pr-3">Docente</th>
                           <th className="py-1 pr-3">Estado</th>
-                          <th className="py-1 pr-3"></th>
                         </tr>
                       </thead>
                       <tbody>
@@ -253,43 +184,10 @@ export default function DecanoApp({ user }) {
                             <td className="py-1.5 pr-3">
                               <EstadoBadge estado={g.estado} />
                             </td>
-                            <td className="py-1.5 pr-3 text-right whitespace-nowrap">
-                              <button
-                                className="text-brand-600 text-xs font-medium mr-3"
-                                onClick={() => setEditando(g)}
-                              >
-                                Editar
-                              </button>
-                              <button
-                                className="text-red-600 text-xs font-medium"
-                                onClick={() => eliminarGrupo(g.id)}
-                              >
-                                Eliminar
-                              </button>
-                            </td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
-                  </div>
-                )}
-
-                {formularioAbiertoPara === item.id && (
-                  <div className="mt-3">
-                    <GrupoForm
-                      onCancel={() => setFormularioAbiertoPara(null)}
-                      onSubmit={(valores) => crearGrupo(item.id, valores)}
-                    />
-                  </div>
-                )}
-
-                {editando && editando.catalogo_id === item.id && (
-                  <div className="mt-3">
-                    <GrupoForm
-                      initial={editando}
-                      onCancel={() => setEditando(null)}
-                      onSubmit={(valores) => actualizarGrupo(editando.id, valores)}
-                    />
                   </div>
                 )}
               </div>

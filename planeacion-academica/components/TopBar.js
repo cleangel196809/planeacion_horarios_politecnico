@@ -17,7 +17,12 @@ export default function TopBar({ user, titulo, children }) {
         <div>
           <h1 className="text-lg font-semibold text-gray-900">{titulo}</h1>
           <p className="text-xs text-gray-500">
-            {user.nombre} · {user.rol === "admin" ? "Administrador" : `Decano · ${user.facultad}`}
+            {user.nombre} ·{" "}
+            {user.rol === "admin"
+              ? "Administrador"
+              : user.rol === "coordinador"
+              ? `Coordinador · ${user.facultad}`
+              : `Decano · ${user.facultad}`}
           </p>
         </div>
         <div className="flex items-center gap-3">

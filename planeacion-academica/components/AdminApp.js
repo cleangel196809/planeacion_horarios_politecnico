@@ -15,11 +15,19 @@ export default function AdminApp({ user }) {
   const [mensajeImport, setMensajeImport] = useState(null);
   const [errorImport, setErrorImport] = useState("");
 
+  const [periodoReal, setPeriodoReal] = useState("");
+  const [archivoReal, setArchivoReal] = useState(null);
+  const [importandoReal, setImportandoReal] = useState(false);
+  const [mensajeImportReal, setMensajeImportReal] = useState(null);
+  const [errorImportReal, setErrorImportReal] = useState("");
+
   const [usuarios, setUsuarios] = useState([]);
   const [nuevoUsuario, setNuevoUsuario] = useState({
     username: "",
     nombre: "",
     facultad: "",
+    email: "",
+    rol: "decano",
     password: ""
   });
   const [errorUsuario, setErrorUsuario] = useState("");
@@ -63,6 +71,31 @@ export default function AdminApp({ user }) {
     }
   }
 
+  async function handleImportarReal(e) {
+    e.preventDefault();
+    setErrorImportReal("");
+    setMensajeImportReal(null);
+    if (!archivoReal || !periodoReal) {
+      setErrorImportReal("Selecciona el archivo y escribe el período.");
+      return;
+    }
+    setImportandoReal(true);
+    try {
+      const formData = new FormData();
+      formData.append("archivo", archivoReal);
+      formData.append("periodo", periodoReal);
+      const res = await fetch("/api/admin/importar-real", { method: "POST", body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setMensajeImportReal(data);
+      cargarUsuarios();
+    } catch (err) {
+      setErrorImportReal(err.message);
+    } finally {
+      setImportandoReal(false);
+    }
+  }
+
   async function handleCrearUsuario(e) {
     e.preventDefault();
     setErrorUsuario("");
@@ -75,7 +108,7 @@ export default function AdminApp({ user }) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      setNuevoUsuario({ username: "", nombre: "", facultad: "", password: "" });
+      setNuevoUsuario({ username: "", nombre: "", facultad: "", email: "", rol: "decano", password: "" });
       cargarUsuarios();
     } catch (err) {
       setErrorUsuario(err.message);
@@ -89,6 +122,15 @@ export default function AdminApp({ user }) {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, activo: !activo })
+    });
+    cargarUsuarios();
+  }
+
+  async function actualizarEmail(id, email) {
+    await fetch("/api/admin/usuarios", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, email })
     });
     cargarUsuarios();
   }
@@ -154,12 +196,93 @@ export default function AdminApp({ user }) {
         </section>
 
         <section className="card">
-          <h2 className="font-semibold text-gray-900 mb-1">2. Usuarios de los decanos</h2>
+          <h2 className="font-semibold text-gray-900 mb-1">
+            1b. Cargar catálogo real (carreras y materias)
+          </h2>
           <p className="text-sm text-gray-500 mb-4">
-            Crea un usuario por facultad. El decano deberá cambiar su contraseña la primera vez
-            que ingrese.
+            Sube el archivo real de carreras y materias (facultad, plan, ciclo, grupo, jornada y
+            sede ya vienen en el archivo). Por cada facultad nueva que aparezca se crea
+            automáticamente un usuario decano con una contraseña temporal, que verás aquí abajo
+            solo esta vez.
           </p>
-          <form onSubmit={handleCrearUsuario} className="grid sm:grid-cols-5 gap-3 items-end mb-4">
+          <form onSubmit={handleImportarReal} className="flex flex-wrap items-end gap-3">
+            <div>
+              <label className="label">Período</label>
+              <input
+                className="input"
+                placeholder="Ej: 2026-3T"
+                value={periodoReal}
+                onChange={(e) => setPeriodoReal(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="label">Archivo Excel</label>
+              <input
+                type="file"
+                accept=".xlsx"
+                className="input"
+                onChange={(e) => setArchivoReal(e.target.files?.[0] || null)}
+              />
+            </div>
+            <button className="btn-primary" disabled={importandoReal}>
+              {importandoReal ? "Cargando..." : "Cargar catálogo real"}
+            </button>
+          </form>
+          {errorImportReal && <p className="text-sm text-red-600 mt-3">{errorImportReal}</p>}
+          {mensajeImportReal && (
+            <div className="mt-3 space-y-2">
+              <p className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+                Catálogo cargado: {mensajeImportReal.asignaturasCargadas} filas para el período{" "}
+                {mensajeImportReal.periodo}. Facultades: {mensajeImportReal.facultades.join(", ")}.
+              </p>
+              {mensajeImportReal.jornadasNoReconocidas?.length > 0 && (
+                <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  Aviso: el archivo trae jornadas que no se reconocieron y quedaron sin asignar (el
+                  decano las podrá elegir manualmente al confirmar la fila):{" "}
+                  {mensajeImportReal.jornadasNoReconocidas.join(", ")}.
+                </p>
+              )}
+              {mensajeImportReal.nuevosDecanos?.length > 0 && (
+                <div className="bg-brand-50 border border-brand-200 rounded-lg px-3 py-3">
+                  <p className="text-sm font-medium text-brand-700 mb-2">
+                    Se crearon {mensajeImportReal.nuevosDecanos.length} usuario(s) decano. Guarda
+                    estas contraseñas: no se volverán a mostrar.
+                  </p>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-gray-500 border-b">
+                          <th className="py-1 pr-3">Facultad</th>
+                          <th className="py-1 pr-3">Usuario</th>
+                          <th className="py-1 pr-3">Contraseña</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {mensajeImportReal.nuevosDecanos.map((d) => (
+                          <tr key={d.username} className="border-b last:border-0">
+                            <td className="py-1.5 pr-3">{d.facultad}</td>
+                            <td className="py-1.5 pr-3 font-mono">{d.username}</td>
+                            <td className="py-1.5 pr-3 font-mono">{d.password}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+
+        <section className="card">
+          <h2 className="font-semibold text-gray-900 mb-1">2. Usuarios de decanos y coordinadores</h2>
+          <p className="text-sm text-gray-500 mb-4">
+            Crea un usuario por facultad, como decano (puede diligenciar la planeación) o como
+            coordinador (solo puede consultar los datos de esa facultad, sin editarlos). Deberá
+            cambiar su contraseña la primera vez que ingrese. El correo es opcional, pero sin él
+            no podrá usar &quot;¿Olvidaste tu contraseña?&quot; para recuperar el acceso.
+          </p>
+          <form onSubmit={handleCrearUsuario} className="grid sm:grid-cols-7 gap-3 items-end mb-4">
             <div>
               <label className="label">Usuario</label>
               <input
@@ -189,6 +312,27 @@ export default function AdminApp({ user }) {
               />
             </div>
             <div>
+              <label className="label">Rol</label>
+              <select
+                className="input"
+                value={nuevoUsuario.rol}
+                onChange={(e) => setNuevoUsuario({ ...nuevoUsuario, rol: e.target.value })}
+              >
+                <option value="decano">Decano</option>
+                <option value="coordinador">Coordinador (solo consulta)</option>
+              </select>
+            </div>
+            <div>
+              <label className="label">Correo (recomendado)</label>
+              <input
+                type="email"
+                className="input"
+                value={nuevoUsuario.email}
+                onChange={(e) => setNuevoUsuario({ ...nuevoUsuario, email: e.target.value })}
+                placeholder="correo@pi.edu.co"
+              />
+            </div>
+            <div>
               <label className="label">Contraseña inicial</label>
               <input
                 type="text"
@@ -199,7 +343,7 @@ export default function AdminApp({ user }) {
               />
             </div>
             <button className="btn-primary" disabled={creandoUsuario}>
-              {creandoUsuario ? "Creando..." : "Crear decano"}
+              {creandoUsuario ? "Creando..." : "Crear usuario"}
             </button>
           </form>
           {errorUsuario && <p className="text-sm text-red-600 mb-3">{errorUsuario}</p>}
@@ -212,6 +356,7 @@ export default function AdminApp({ user }) {
                   <th className="py-1 pr-3">Nombre</th>
                   <th className="py-1 pr-3">Rol</th>
                   <th className="py-1 pr-3">Facultad</th>
+                  <th className="py-1 pr-3">Correo</th>
                   <th className="py-1 pr-3">Estado</th>
                   <th className="py-1 pr-3"></th>
                 </tr>
@@ -221,15 +366,38 @@ export default function AdminApp({ user }) {
                   <tr key={u.id} className="border-b last:border-0">
                     <td className="py-1.5 pr-3">{u.username}</td>
                     <td className="py-1.5 pr-3">{u.nombre}</td>
-                    <td className="py-1.5 pr-3">{u.rol}</td>
+                    <td className="py-1.5 pr-3">
+                      {u.rol === "admin"
+                        ? "Administrador"
+                        : u.rol === "coordinador"
+                        ? "Coordinador"
+                        : "Decano"}
+                    </td>
                     <td className="py-1.5 pr-3">{u.facultad || "—"}</td>
+                    <td className="py-1.5 pr-3">
+                      {u.rol === "decano" || u.rol === "coordinador" ? (
+                        <input
+                          type="email"
+                          defaultValue={u.email || ""}
+                          placeholder="Sin correo"
+                          className="input py-1 text-xs w-40"
+                          onBlur={(e) => {
+                            if (e.target.value !== (u.email || "")) {
+                              actualizarEmail(u.id, e.target.value);
+                            }
+                          }}
+                        />
+                      ) : (
+                        u.email || "—"
+                      )}
+                    </td>
                     <td className="py-1.5 pr-3">
                       <span className={`badge ${u.activo ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>
                         {u.activo ? "Activo" : "Inactivo"}
                       </span>
                     </td>
                     <td className="py-1.5 pr-3 text-right">
-                      {u.rol === "decano" && (
+                      {(u.rol === "decano" || u.rol === "coordinador") && (
                         <button
                           className="text-brand-600 text-xs font-medium"
                           onClick={() => toggleActivo(u.id, u.activo)}

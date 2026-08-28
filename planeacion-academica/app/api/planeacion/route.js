@@ -1,5 +1,5 @@
 const { query, withTransaction } = require("@/lib/db");
-const { requireUser } = require("@/lib/session");
+const { requireUser, requireEditor } = require("@/lib/session");
 const { jsonError, ok } = require("@/lib/apiHelpers");
 
 async function attachHorarios(rows) {
@@ -32,7 +32,7 @@ async function GET(req) {
 
     const params = [periodo];
     let where = "WHERE p.periodo = $1";
-    if (user.rol === "decano") {
+    if (user.rol === "decano" || user.rol === "coordinador") {
       params.push(user.facultad);
       where += ` AND p.facultad = $${params.length}`;
     } else {
@@ -73,7 +73,7 @@ function validarHorarios(horarios) {
 
 async function POST(req) {
   try {
-    const user = requireUser();
+    const user = requireEditor();
     const body = await req.json();
     const {
       catalogo_id,
