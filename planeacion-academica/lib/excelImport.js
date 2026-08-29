@@ -477,9 +477,92 @@ async function parseSalonesExcel(buffer) {
   return { salones, sedes: [...sedesEncontradas].sort(), hojasIgnoradas };
 }
 
+// --- Importación del archivo base de estudiantes -------------------------
+// Columnas reconocidas de forma flexible (no hace falta que el archivo traiga
+// todas): DOCUMENTO/CEDULA, NOMBRE, FACULTAD, PROGRAMA/CARRERA, PLAN,
+// CICLO/SEMESTRE, ASIGNATURA/MATERIA, GRUPO, CORREO/EMAIL,
+// TELEFONO/CELULAR. Solo documento y nombre son obligatorios.
+
+function encontrarFilaEncabezadoEstudiantes(sheet) {
+  for (let r = 1; r <= 5; r++) {
+    const row = sheet.getRow(r);
+    let tieneDocumento = false;
+    let tieneNombre = false;
+    row.eachCell({ includeEmpty: true }, (cell) => {
+      const h = normalizeHeader(unwrapCellValue(cell.value));
+      if (h.includes("DOCUMENTO") || h.includes("CEDULA") || h.includes("IDENTIFICACION")) tieneDocumento = true;
+      if (h.includes("NOMBRE")) tieneNombre = true;
+    });
+    if (tieneDocumento && tieneNombre) return r;
+  }
+  return null;
+}
+
+async function parseEstudiantesExcel(buffer) {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+
+  const sheet = findSheet(workbook, "ESTUDIANTE") || workbook.worksheets[0];
+  if (!sheet) {
+    throw new Error("El archivo no tiene ninguna hoja de cálculo.");
+  }
+
+  const filaEncabezado = encontrarFilaEncabezadoEstudiantes(sheet);
+  if (!filaEncabezado) {
+    throw new Error(
+      "No se encontraron columnas de documento y nombre en las primeras filas del archivo. " +
+        "Verifica que tenga columnas como DOCUMENTO (o CÉDULA) y NOMBRE."
+    );
+  }
+
+  const headerMap = buildHeaderMap(sheet.getRow(filaEncabezado));
+  const idx = {
+    DOC: headerMap.findIndex((h) => h.includes("DOCUMENTO") || h.includes("CEDULA") || h.includes("IDENTIFICACION")),
+    NOMBRE: headerMap.findIndex((h) => h.includes("NOMBRE")),
+    FACULTAD: headerMap.findIndex((h) => h.includes("FACULTAD")),
+    PROGRAMA: headerMap.findIndex((h) => h.includes("PROGRAMA") || h.includes("CARRERA")),
+    PLAN: headerMap.findIndex((h) => h === "PLAN" || h.includes("PLAN")),
+    CICLO: headerMap.findIndex((h) => h.includes("CICLO") || h.includes("SEMESTRE")),
+    ASIGNATURA: headerMap.findIndex((h) => h.includes("ASIGNATURA") || h.includes("MATERIA")),
+    GRUPO: headerMap.findIndex((h) => h === "GRUPO"),
+    CORREO: headerMap.findIndex((h) => h.includes("CORREO") || h.includes("EMAIL")),
+    TELEFONO: headerMap.findIndex((h) => h.includes("TELEFONO") || h.includes("CELULAR"))
+  };
+
+  const estudiantes = [];
+  sheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+    if (rowNumber <= filaEncabezado) return;
+    const get = (i) => (i === -1 ? null : row.getCell(i + 1).value);
+
+    const documento = toStringOrNull(get(idx.DOC));
+    const nombre = toStringOrNull(get(idx.NOMBRE));
+    if (!documento || !nombre) return; // fila vacía o incompleta
+
+    estudiantes.push({
+      documento,
+      nombre_completo: nombre,
+      facultad: toStringOrNull(get(idx.FACULTAD)),
+      programa: toStringOrNull(get(idx.PROGRAMA)),
+      plan: toStringOrNull(get(idx.PLAN)),
+      ciclo: toStringOrNull(get(idx.CICLO)),
+      asignatura: toStringOrNull(get(idx.ASIGNATURA)),
+      grupo: toStringOrNull(get(idx.GRUPO)),
+      correo: toStringOrNull(get(idx.CORREO)),
+      telefono: toStringOrNull(get(idx.TELEFONO))
+    });
+  });
+
+  if (estudiantes.length === 0) {
+    throw new Error("No se encontraron filas con documento y nombre diligenciados en el archivo.");
+  }
+
+  return { estudiantes };
+}
+
 module.exports = {
   parseCatalogoExcel,
   parseCatalogoRealExcel,
   parseDocentesExcel,
-  parseSalonesExcel
+  parseSalonesExcel,
+  parseEstudiantesExcel
 };

@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { SEDES, JORNADAS, ESTADOS, DIAS } from "@/lib/constants";
+import { JORNADAS, ESTADOS, DIAS } from "@/lib/constants";
+import { useSedes } from "@/lib/useSedes";
 import { IconX, IconSave } from "@/components/Icons";
 
 const HORARIO_VACIO = { hora_inicio: "", hora_fin: "", salon: "" };
@@ -16,6 +17,7 @@ function horariosArrayToMap(horarios) {
 
 export default function GrupoForm({ facultad, initial, onCancel, onSubmit }) {
   const isEdit = Boolean(initial?.id);
+  const SEDES = useSedes();
 
   const [grupo, setGrupo] = useState(initial?.grupo || "");
   const [modalidad, setModalidad] = useState(initial?.modalidad || "");

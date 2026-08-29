@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { SEDES, JORNADAS, DIAS } from "@/lib/constants";
+import { useSedes } from "@/lib/useSedes";
 import { IconArrowLeft, IconEdit, IconX, IconSave } from "@/components/Icons";
 
 // Color de referencia por jornada, solo para la interfaz (chips, resumen).
@@ -126,6 +127,7 @@ export default function ProgramacionCicloForm({
   const [planeacionPorCatalogo, setPlaneacionPorCatalogo] = useState({});
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState("");
+  const sedesDisponibles = useSedes();
 
   const [docentesFacultad, setDocentesFacultad] = useState([]);
   const [salonesPorSede, setSalonesPorSede] = useState({});
@@ -703,7 +705,7 @@ export default function ProgramacionCicloForm({
                               SEDE(S)
                             </p>
                             <div className="flex flex-wrap gap-2">
-                              {SEDES.map((s) => (
+                              {sedesDisponibles.map((s) => (
                                 <button
                                   key={s.value}
                                   type="button"

@@ -16,14 +16,28 @@ async function GET() {
   }
 }
 
-const ROLES_ASIGNABLES = ["decano", "coordinador"];
+const ROLES_ASIGNABLES = ["decano", "coordinador", "secretaria_academica"];
+// La secretaría académica es transversal a todas las facultades (como el
+// admin), así que no se le pide facultad al crearla.
+const ROLES_SIN_FACULTAD = ["secretaria_academica"];
 
 async function POST(req) {
   try {
     requireAdmin();
     const { username, nombre, facultad, password, email, rol } = await req.json();
-    if (!username || !nombre || !facultad || !password) {
-      const err = new Error("Usuario, nombre, facultad y contraseña son obligatorios.");
+
+    // Solo el admin puede crear decano, coordinador o secretaría académica
+    // (nunca otro admin desde aquí); por defecto se crea decano si no se
+    // especifica, para no romper integraciones existentes que no envíen "rol".
+    const rolFinal = ROLES_ASIGNABLES.includes(rol) ? rol : "decano";
+    const requiereFacultad = !ROLES_SIN_FACULTAD.includes(rolFinal);
+
+    if (!username || !nombre || !password || (requiereFacultad && !facultad)) {
+      const err = new Error(
+        requiereFacultad
+          ? "Usuario, nombre, facultad y contraseña son obligatorios."
+          : "Usuario, nombre y contraseña son obligatorios."
+      );
       err.status = 400;
       throw err;
     }
@@ -32,11 +46,6 @@ async function POST(req) {
       err.status = 400;
       throw err;
     }
-
-    // Solo el admin puede crear decano o coordinador (nunca otro admin desde
-    // aquí); por defecto se crea decano si no se especifica, para no romper
-    // integraciones existentes que no envíen "rol".
-    const rolFinal = ROLES_ASIGNABLES.includes(rol) ? rol : "decano";
 
     const cleanUsername = String(username).trim().toLowerCase();
     const existing = await query("SELECT id FROM usuarios WHERE username = $1", [cleanUsername]);
@@ -51,7 +60,14 @@ async function POST(req) {
       `INSERT INTO usuarios (username, password_hash, rol, nombre, facultad, email, debe_cambiar_password)
        VALUES ($1, $2, $3, $4, $5, $6, TRUE)
        RETURNING id, username, nombre, rol, facultad, email, activo`,
-      [cleanUsername, passwordHash, rolFinal, nombre, facultad, email ? String(email).trim() : null]
+      [
+        cleanUsername,
+        passwordHash,
+        rolFinal,
+        nombre,
+        requiereFacultad ? facultad : null,
+        email ? String(email).trim() : null
+      ]
     );
 
     return ok({ usuario: rows[0] }, { status: 201 });
@@ -72,16 +88,16 @@ async function PATCH(req) {
     }
 
     if (typeof body.activo === "boolean") {
-      await query("UPDATE usuarios SET activo = $1 WHERE id = $2 AND rol IN ('decano', 'coordinador')", [
-        body.activo,
-        id
-      ]);
+      await query(
+        "UPDATE usuarios SET activo = $1 WHERE id = $2 AND rol IN ('decano', 'coordinador', 'secretaria_academica')",
+        [body.activo, id]
+      );
     }
     if (typeof body.email === "string") {
-      await query("UPDATE usuarios SET email = $1 WHERE id = $2 AND rol IN ('decano', 'coordinador')", [
-        body.email.trim() || null,
-        id
-      ]);
+      await query(
+        "UPDATE usuarios SET email = $1 WHERE id = $2 AND rol IN ('decano', 'coordinador', 'secretaria_academica')",
+        [body.email.trim() || null, id]
+      );
     }
 
     return ok({ success: true });

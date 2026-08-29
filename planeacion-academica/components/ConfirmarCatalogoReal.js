@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { SEDES, JORNADAS, CICLOS } from "@/lib/constants";
+import { JORNADAS, CICLOS } from "@/lib/constants";
+import { useSedes } from "@/lib/useSedes";
 import { IconCheck } from "@/components/Icons";
 
 const LIMITE_VISIBLE = 80;
@@ -11,6 +12,7 @@ const LIMITE_VISIBLE = 80;
 // fila crea su grupo de planeación (con la jornada/sede que quede definida
 // en ese momento), que es lo único que entra al Excel entregable.
 export default function ConfirmarCatalogoReal({ items, periodo, onConfirmado }) {
+  const SEDES = useSedes();
   const [edits, setEdits] = useState({}); // id -> { programa, ciclo, jornada, sede }
   const [seleccionados, setSeleccionados] = useState(new Set());
   const [guardando, setGuardando] = useState(false);

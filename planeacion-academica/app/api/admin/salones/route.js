@@ -1,10 +1,10 @@
 const { query } = require("@/lib/db");
-const { requireAdmin } = require("@/lib/session");
+const { requireStaff } = require("@/lib/session");
 const { jsonError, ok } = require("@/lib/apiHelpers");
 
 async function GET(req) {
   try {
-    requireAdmin();
+    requireStaff();
     const { searchParams } = new URL(req.url);
     const sede = searchParams.get("sede");
 
@@ -30,7 +30,7 @@ async function GET(req) {
 // cargar el mismo salón dos veces no duplique la fila).
 async function POST(req) {
   try {
-    requireAdmin();
+    requireStaff();
     const body = await req.json();
     const sede = String(body.sede || "").trim();
     const nombre = String(body.nombre || "").trim();
@@ -75,7 +75,7 @@ async function POST(req) {
 
 async function DELETE(req) {
   try {
-    requireAdmin();
+    requireStaff();
     const body = await req.json();
 
     // Borrado masivo: todos los salones de una sede (por ejemplo, para

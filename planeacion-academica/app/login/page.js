@@ -86,6 +86,8 @@ export default function LoginPage() {
           ? "/admin"
           : data.user.rol === "coordinador"
           ? "/coordinador"
+          : data.user.rol === "secretaria_academica"
+          ? "/secretaria"
           : "/decano"
       );
       router.refresh();

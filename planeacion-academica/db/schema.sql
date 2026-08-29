@@ -5,9 +5,9 @@ CREATE TABLE IF NOT EXISTS usuarios (
   id            SERIAL PRIMARY KEY,
   username      TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
-  rol           TEXT NOT NULL CHECK (rol IN ('admin', 'decano', 'coordinador')),
+  rol           TEXT NOT NULL CHECK (rol IN ('admin', 'decano', 'coordinador', 'secretaria_academica')),
   nombre        TEXT NOT NULL,
-  facultad      TEXT,              -- NULL para admin; obligatorio para decano
+  facultad      TEXT,              -- NULL para admin y secretaria_academica; obligatorio para decano/coordinador
   email         TEXT,              -- para el enlace de "olvidé mi contraseña"
   activo        BOOLEAN NOT NULL DEFAULT TRUE,
   debe_cambiar_password BOOLEAN NOT NULL DEFAULT TRUE,
@@ -61,6 +61,46 @@ CREATE TABLE IF NOT EXISTS salones (
 );
 
 CREATE INDEX IF NOT EXISTS idx_salones_sede ON salones (sede);
+
+-- Catálogo de sedes, administrable por la secretaría académica (y el admin).
+-- Alimenta la lista desplegable de "Sede" en salones, grupos y el catálogo
+-- real; el valor de "nombre" es el mismo texto que se guarda en salones.sede
+-- y planeacion.modalidad, así que agregar una sede aquí la deja disponible
+-- de inmediato en toda la aplicación.
+CREATE TABLE IF NOT EXISTS sedes (
+  id         SERIAL PRIMARY KEY,
+  nombre     TEXT NOT NULL UNIQUE,
+  activa     BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+INSERT INTO sedes (nombre) VALUES
+  ('CALLE 73'), ('CALLE 80'), ('NORTE'), ('SUR'), ('ASISTIDA POR TECNOLOGIA')
+ON CONFLICT (nombre) DO NOTHING;
+
+-- Archivo base de estudiantes, cargado por la secretaría académica (Excel
+-- con documento/nombre y, si vienen, programa/plan/ciclo/asignatura/grupo y
+-- datos de contacto). Es informativo: no depende del catálogo ni de
+-- planeacion, para poder cargarse en cualquier momento del proceso.
+CREATE TABLE IF NOT EXISTS estudiantes (
+  id              SERIAL PRIMARY KEY,
+  periodo         TEXT NOT NULL,
+  documento       TEXT NOT NULL,
+  nombre_completo TEXT NOT NULL,
+  facultad        TEXT,
+  programa        TEXT,
+  plan            TEXT,
+  ciclo           TEXT,
+  asignatura      TEXT,
+  grupo           TEXT,
+  correo          TEXT,
+  telefono        TEXT,
+  cargado_por     INTEGER REFERENCES usuarios(id),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (periodo, documento, asignatura, grupo)
+);
+
+CREATE INDEX IF NOT EXISTS idx_estudiantes_periodo_facultad ON estudiantes (periodo, facultad);
 
 -- Un registro de planeacion = un grupo/oferta concreta de una asignatura del
 -- catálogo, diligenciado por el decano de la facultad correspondiente.

@@ -1,11 +1,11 @@
 const { withTransaction } = require("@/lib/db");
-const { requireAdmin } = require("@/lib/session");
+const { requireStaff } = require("@/lib/session");
 const { parseSalonesExcel } = require("@/lib/excelImport");
 const { jsonError, ok } = require("@/lib/apiHelpers");
 
 async function POST(req) {
   try {
-    requireAdmin();
+    requireStaff();
 
     const formData = await req.formData();
     const file = formData.get("archivo");

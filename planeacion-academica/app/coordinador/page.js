@@ -7,6 +7,7 @@ export default function CoordinadorPage() {
   if (!user) redirect("/login");
   if (user.rol === "admin") redirect("/admin");
   if (user.rol === "decano") redirect("/decano");
+  if (user.rol === "secretaria_academica") redirect("/secretaria");
   if (user.rol !== "coordinador") redirect("/login");
   return <CoordinadorApp user={user} />;
 }

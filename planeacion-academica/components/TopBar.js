@@ -21,6 +21,8 @@ export default function TopBar({ user, titulo, children }) {
           subtitulo={`${user.nombre} · ${
             user.rol === "admin"
               ? "Administrador"
+              : user.rol === "secretaria_academica"
+              ? "Secretaría académica"
               : user.rol === "coordinador"
               ? `Coordinador · ${user.facultad}`
               : `Decano · ${user.facultad}`

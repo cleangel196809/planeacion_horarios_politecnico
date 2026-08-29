@@ -7,6 +7,7 @@ export default function DecanoPage() {
   if (!user) redirect("/login");
   if (user.rol === "admin") redirect("/admin");
   if (user.rol === "coordinador") redirect("/coordinador");
+  if (user.rol === "secretaria_academica") redirect("/secretaria");
   if (user.rol !== "decano") redirect("/login");
   return <DecanoApp user={user} />;
 }
