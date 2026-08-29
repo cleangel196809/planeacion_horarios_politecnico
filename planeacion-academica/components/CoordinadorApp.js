@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import TopBar from "@/components/TopBar";
 import CambiarPasswordModal from "@/components/CambiarPasswordModal";
 import EstadoBadge from "@/components/EstadoBadge";
+import { IconDownload } from "@/components/Icons";
 import { SEDES, JORNADAS, DIAS } from "@/lib/constants";
 
 function labelSede(v) {
@@ -110,7 +111,7 @@ export default function CoordinadorApp({ user }) {
             href={`/api/planeacion/exportar?periodo=${encodeURIComponent(periodo)}`}
             className="btn-secondary"
           >
-            Descargar Excel
+            <IconDownload /> Descargar Excel
           </a>
         )}
       </TopBar>

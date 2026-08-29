@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { IconSave } from "@/components/Icons";
 
 export default function CambiarPasswordModal({ onDone }) {
   const [passwordActual, setPasswordActual] = useState("");
@@ -31,7 +32,12 @@ export default function CambiarPasswordModal({ onDone }) {
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
       <div className="card w-full max-w-sm">
-        <h2 className="text-lg font-semibold mb-1">Cambia tu contraseña</h2>
+        <div className="flex items-center gap-3 mb-3">
+          <img src="/isologo.png" alt="Politécnico Internacional" className="h-9 w-auto shrink-0" />
+          <h2 className="text-lg font-semibold text-brand-900 border-l border-brand-100 pl-3">
+            Cambia tu contraseña
+          </h2>
+        </div>
         <p className="text-sm text-gray-500 mb-4">
           Por seguridad debes definir una nueva contraseña antes de continuar.
         </p>
@@ -59,7 +65,7 @@ export default function CambiarPasswordModal({ onDone }) {
           </div>
           {error && <p className="text-sm text-red-600">{error}</p>}
           <button type="submit" className="btn-primary w-full" disabled={loading}>
-            {loading ? "Guardando..." : "Guardar y continuar"}
+            <IconSave /> {loading ? "Guardando..." : "Guardar y continuar"}
           </button>
         </form>
       </div>

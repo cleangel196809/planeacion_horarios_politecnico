@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { SEDES, JORNADAS, DIAS } from "@/lib/constants";
+import { IconArrowLeft, IconEdit, IconX, IconSave } from "@/components/Icons";
 
 // Color de referencia por jornada, solo para la interfaz (chips, resumen).
 // No se guarda en la base de datos.
@@ -38,16 +39,32 @@ function diasVisiblesPara(jornadaValue) {
 // jornada (o de su primera franja sugerida, en el caso de Sabatina).
 function horarioSugerido(jornadaValue) {
   const j = JORNADAS.find((x) => x.value === jornadaValue);
-  if (!j) return { hora_inicio: "", hora_fin: "" };
+  if (!j) return { hora_inicio: "", hora_fin: "", salon: "" };
   if (j.opciones && j.opciones.length > 0) {
-    return { hora_inicio: j.opciones[0].horaInicio, hora_fin: j.opciones[0].horaFin };
+    return { hora_inicio: j.opciones[0].horaInicio, hora_fin: j.opciones[0].horaFin, salon: "" };
   }
-  return { hora_inicio: j.horaInicio || "", hora_fin: j.horaFin || "" };
+  return { hora_inicio: j.horaInicio || "", hora_fin: j.horaFin || "", salon: "" };
 }
 
-// Reconstruye el estado de edición (sedes → jornadas → días/horario) de una
-// materia a partir de los grupos ya guardados en planeacion, para que al abrir
-// el acordeón se vea tal cual quedó la última vez.
+// Convierte "HH:MM" a minutos desde medianoche, para comparar franjas.
+function horaAMinutos(hhmm) {
+  if (!hhmm || typeof hhmm !== "string" || !hhmm.includes(":")) return null;
+  const [h, m] = hhmm.split(":").map(Number);
+  if (Number.isNaN(h) || Number.isNaN(m)) return null;
+  return h * 60 + m;
+}
+function seSuperponen(aIni, aFin, bIni, bFin) {
+  const a1 = horaAMinutos(aIni);
+  const a2 = horaAMinutos(aFin);
+  const b1 = horaAMinutos(bIni);
+  const b2 = horaAMinutos(bFin);
+  if (a1 == null || a2 == null || b1 == null || b2 == null) return false;
+  return a1 < b2 && b1 < a2;
+}
+
+// Reconstruye el estado de edición (sedes → jornadas → docente/días/horario/
+// salón) de una materia a partir de los grupos ya guardados en planeacion,
+// para que al abrir el acordeón se vea tal cual quedó la última vez.
 function construirConfigDesdeGrupos(grupos) {
   const sedes = new Set();
   const porSede = {};
@@ -60,12 +77,22 @@ function construirConfigDesdeGrupos(grupos) {
     const horarioPorDia = {};
     for (const h of g.horarios || []) {
       dias.add(h.dia);
-      horarioPorDia[h.dia] = { hora_inicio: h.hora_inicio || "", hora_fin: h.hora_fin || "" };
+      horarioPorDia[h.dia] = {
+        hora_inicio: h.hora_inicio || "",
+        hora_fin: h.hora_fin || "",
+        salon: h.salon || ""
+      };
     }
     // Si ya existía una jornada con esta misma clave (fila duplicada), se
     // conserva la primera y la segunda se ignora aquí (se limpia al guardar).
     if (!porSede[g.modalidad].porJornada[g.jornada]) {
-      porSede[g.modalidad].porJornada[g.jornada] = { dias, horarioPorDia };
+      porSede[g.modalidad].porJornada[g.jornada] = {
+        dias,
+        horarioPorDia,
+        docenteDocumento: g.documento_docente || "",
+        docenteNombre: g.nombre_docente || "",
+        docenteCorreo: g.correo_institucional || ""
+      };
     }
   }
   return { sedes, porSede };
@@ -75,12 +102,18 @@ function configVacia() {
   return { sedes: new Set(), porSede: {} };
 }
 
+function jornadaVacia() {
+  return { dias: new Set(), horarioPorDia: {}, docenteDocumento: "", docenteNombre: "", docenteCorreo: "" };
+}
+
 // Paso 2 de la captura: "Programación del ciclo". El decano elige un ciclo de
 // formación y, materia por materia, arma su programación en cascada: sede(s)
-// → jornada(s) de esa sede → días de la semana con su franja horaria. Cada
-// materia se guarda por separado y solo toca sus propios grupos (sede+jornada);
-// no borra el docente/salón/grupo que ya se hubiera cargado desde "Agregar
-// grupo" para esa misma combinación, salvo que se quite del todo.
+// → jornada(s) de esa sede (con su docente) → días de la semana con su franja
+// horaria y salón. Cada materia se guarda por separado y solo toca sus
+// propios grupos (sede+jornada). Antes de guardar se verifica que ningún
+// docente ni salón quede con horarios cruzados frente al resto de grupos ya
+// programados en el período (de cualquier materia de la facultad); si hay un
+// cruce, se resalta en rojo para que el decano lo corrija.
 export default function ProgramacionCicloForm({
   facultad,
   programa,
@@ -93,6 +126,9 @@ export default function ProgramacionCicloForm({
   const [planeacionPorCatalogo, setPlaneacionPorCatalogo] = useState({});
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState("");
+
+  const [docentesFacultad, setDocentesFacultad] = useState([]);
+  const [salonesPorSede, setSalonesPorSede] = useState({});
 
   const [cicloSeleccionado, setCicloSeleccionado] = useState("");
   const [busquedaMateria, setBusquedaMateria] = useState("");
@@ -135,6 +171,40 @@ export default function ProgramacionCicloForm({
     cargarDatos();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [periodo]);
+
+  // Lista de docentes de la facultad, para el selector de cada jornada.
+  useEffect(() => {
+    if (!facultad) return;
+    fetch(`/api/docentes?facultad=${encodeURIComponent(facultad)}`)
+      .then((r) => r.json())
+      .then((d) => setDocentesFacultad(d.docentes || []))
+      .catch(() => setDocentesFacultad([]));
+  }, [facultad]);
+
+  // Salones de una sede, cargados la primera vez que se activa esa sede en
+  // cualquier materia (se guardan en caché para no repetir la consulta).
+  function asegurarSalonesSede(sede) {
+    if (!sede || salonesPorSede[sede] !== undefined) return;
+    setSalonesPorSede((prev) => ({ ...prev, [sede]: null })); // marca "cargando"
+    fetch(`/api/salones?sede=${encodeURIComponent(sede)}`)
+      .then((r) => r.json())
+      .then((d) => setSalonesPorSede((prev) => ({ ...prev, [sede]: d.salones || [] })))
+      .catch(() => setSalonesPorSede((prev) => ({ ...prev, [sede]: [] })));
+  }
+
+  const catalogoPorId = useMemo(() => {
+    const map = {};
+    for (const c of catalogo) map[c.id] = c;
+    return map;
+  }, [catalogo]);
+
+  // Todos los grupos ya guardados en el período (de cualquier materia,
+  // programa o ciclo de la facultad), usados para detectar cruces de
+  // docente/salón sin importar a qué materia pertenezcan.
+  const todosLosGrupos = useMemo(
+    () => Object.values(planeacionPorCatalogo).flat(),
+    [planeacionPorCatalogo]
+  );
 
   const materiasDelPrograma = useMemo(
     () => catalogo.filter((c) => c.programa === programa && (c.plan || "Sin plan") === plan),
@@ -202,10 +272,16 @@ export default function ProgramacionCicloForm({
       return;
     }
     setMateriaExpandida(materiaId);
+    const grupos = planeacionPorCatalogo[materiaId] || [];
     setConfigPorMateria((prev) => ({
       ...prev,
-      [materiaId]: construirConfigDesdeGrupos(planeacionPorCatalogo[materiaId] || [])
+      [materiaId]: construirConfigDesdeGrupos(grupos)
     }));
+    // Precarga los salones de las sedes que ya tuvieran grupo, para que el
+    // selector de salón no se quede vacío al abrir.
+    for (const g of grupos) {
+      if (g.modalidad) asegurarSalonesSede(g.modalidad);
+    }
     setErrorPorMateria((prev) => ({ ...prev, [materiaId]: "" }));
     setMensajePorMateria((prev) => ({ ...prev, [materiaId]: "" }));
   }
@@ -227,6 +303,7 @@ export default function ProgramacionCicloForm({
       } else {
         sedes.add(sede);
         porSede[sede] = porSede[sede] || { jornadas: new Set(), porJornada: {} };
+        asegurarSalonesSede(sede);
       }
       return { sedes, porSede };
     });
@@ -242,7 +319,7 @@ export default function ProgramacionCicloForm({
         delete porJornada[jornada];
       } else {
         jornadas.add(jornada);
-        porJornada[jornada] = porJornada[jornada] || { dias: new Set(), horarioPorDia: {} };
+        porJornada[jornada] = porJornada[jornada] || jornadaVacia();
       }
       return { ...cfg, porSede: { ...cfg.porSede, [sede]: { jornadas, porJornada } } };
     });
@@ -252,7 +329,7 @@ export default function ProgramacionCicloForm({
     actualizarConfig(materiaId, (cfg) => {
       const sedeCfg = cfg.porSede[sede];
       if (!sedeCfg) return cfg;
-      const jc = sedeCfg.porJornada[jornada] || { dias: new Set(), horarioPorDia: {} };
+      const jc = sedeCfg.porJornada[jornada] || jornadaVacia();
       const dias = new Set(jc.dias);
       const horarioPorDia = { ...jc.horarioPorDia };
       if (dias.has(dia)) {
@@ -265,7 +342,7 @@ export default function ProgramacionCicloForm({
         ...cfg,
         porSede: {
           ...cfg.porSede,
-          [sede]: { ...sedeCfg, porJornada: { ...sedeCfg.porJornada, [jornada]: { dias, horarioPorDia } } }
+          [sede]: { ...sedeCfg, porJornada: { ...sedeCfg.porJornada, [jornada]: { ...jc, dias, horarioPorDia } } }
         }
       };
     });
@@ -291,15 +368,130 @@ export default function ProgramacionCicloForm({
     });
   }
 
+  function actualizarDocenteJornada(materiaId, sede, jornada, documento) {
+    actualizarConfig(materiaId, (cfg) => {
+      const sedeCfg = cfg.porSede[sede];
+      if (!sedeCfg) return cfg;
+      const jc = sedeCfg.porJornada[jornada] || jornadaVacia();
+      const doc = docentesFacultad.find((d) => d.documento === documento);
+      const actualizada = {
+        ...jc,
+        docenteDocumento: doc ? doc.documento : "",
+        docenteNombre: doc ? doc.nombre_completo : "",
+        docenteCorreo: doc ? doc.correo_institucional || "" : ""
+      };
+      return {
+        ...cfg,
+        porSede: { ...cfg.porSede, [sede]: { ...sedeCfg, porJornada: { ...sedeCfg.porJornada, [jornada]: actualizada } } }
+      };
+    });
+  }
+
+  // Busca el id del grupo (planeacion) ya guardado para esta combinación
+  // materia+sede+jornada, si existe, para excluirlo de la propia comparación
+  // de cruces (un grupo no se cruza consigo mismo).
+  function idPropio(materiaId, sede, jornada) {
+    const existente = (planeacionPorCatalogo[materiaId] || []).find(
+      (g) => g.modalidad === sede && g.jornada === jornada
+    );
+    return existente?.id ?? null;
+  }
+
+  // Cruces de docente y de salón para un día puntual de una jornada en
+  // edición, comparando contra TODOS los grupos ya guardados en el período
+  // (de cualquier materia), excluyendo el propio grupo que se está editando.
+  function conflictosDia(materiaId, sede, jornada, dia) {
+    const sinConflictos = { docente: [], salon: [] };
+    const cfg = configPorMateria[materiaId];
+    const jc = cfg?.porSede?.[sede]?.porJornada?.[jornada];
+    if (!jc) return sinConflictos;
+    const h = jc.horarioPorDia[dia];
+    if (!h || !h.hora_inicio || !h.hora_fin) return sinConflictos;
+
+    const propioId = idPropio(materiaId, sede, jornada);
+    const docenteDocumento = jc.docenteDocumento || "";
+    const salon = h.salon || "";
+    if (!docenteDocumento && !salon) return sinConflictos;
+
+    const docenteConflictos = [];
+    const salonConflictos = [];
+
+    for (const g of todosLosGrupos) {
+      if (g.id === propioId) continue;
+      for (const hh of g.horarios || []) {
+        if (hh.dia !== dia) continue;
+        if (!seSuperponen(h.hora_inicio, h.hora_fin, hh.hora_inicio, hh.hora_fin)) continue;
+        const asignatura = catalogoPorId[g.catalogo_id]?.asignatura || "otra materia";
+        const detalle = {
+          asignatura,
+          grupo: g.grupo || "",
+          sede: g.modalidad,
+          jornada: g.jornada,
+          horaInicio: hh.hora_inicio,
+          horaFin: hh.hora_fin
+        };
+        if (docenteDocumento && g.documento_docente === docenteDocumento) {
+          docenteConflictos.push(detalle);
+        }
+        if (salon && hh.salon && hh.salon === salon) {
+          salonConflictos.push(detalle);
+        }
+      }
+    }
+    return { docente: docenteConflictos, salon: salonConflictos };
+  }
+
+  // Recorre toda la configuración de una materia y junta los mensajes de
+  // cruce de todos sus días marcados, para bloquear el guardado si hay
+  // alguno sin resolver.
+  function todosLosConflictos(materiaId) {
+    const cfg = configPorMateria[materiaId] || configVacia();
+    const mensajes = [];
+    for (const sede of cfg.sedes) {
+      const sedeCfg = cfg.porSede[sede];
+      if (!sedeCfg) continue;
+      for (const jornada of sedeCfg.jornadas) {
+        const jc = sedeCfg.porJornada[jornada];
+        if (!jc) continue;
+        for (const dia of jc.dias) {
+          const { docente, salon } = conflictosDia(materiaId, sede, jornada, dia);
+          for (const c of docente) {
+            mensajes.push(
+              `Docente ocupado el ${labelDia(dia)} ${c.horaInicio}-${c.horaFin} con "${c.asignatura}" (${labelSede(c.sede)} · ${labelJornada(c.jornada)}).`
+            );
+          }
+          for (const c of salon) {
+            mensajes.push(
+              `Salón ocupado el ${labelDia(dia)} ${c.horaInicio}-${c.horaFin} con "${c.asignatura}" (${labelSede(c.sede)} · ${labelJornada(c.jornada)}).`
+            );
+          }
+        }
+      }
+    }
+    return mensajes;
+  }
+
   async function guardarMateria(materiaId) {
     const cfg = configPorMateria[materiaId] || configVacia();
-    setGuardandoMateria(materiaId);
     setErrorPorMateria((prev) => ({ ...prev, [materiaId]: "" }));
     setMensajePorMateria((prev) => ({ ...prev, [materiaId]: "" }));
 
+    const conflictos = todosLosConflictos(materiaId);
+    if (conflictos.length > 0) {
+      setErrorPorMateria((prev) => ({
+        ...prev,
+        [materiaId]: `Hay horarios cruzados sin resolver: ${conflictos[0]}${
+          conflictos.length > 1 ? ` (y ${conflictos.length - 1} más, resaltados abajo)` : ""
+        }`
+      }));
+      return;
+    }
+
+    setGuardandoMateria(materiaId);
     try {
-      // Combinaciones sede+jornada que el decano quiere que existan, con sus
-      // días/horas (se ignoran las jornadas activas sin ningún día marcado).
+      // Combinaciones sede+jornada que el decano quiere que existan, con su
+      // docente y sus días/horas/salón (se ignoran las jornadas activas sin
+      // ningún día marcado).
       const deseados = [];
       for (const sede of cfg.sedes) {
         const sedeCfg = cfg.porSede[sede];
@@ -311,9 +503,16 @@ export default function ProgramacionCicloForm({
             dia,
             hora_inicio: jc.horarioPorDia[dia]?.hora_inicio || "",
             hora_fin: jc.horarioPorDia[dia]?.hora_fin || "",
-            salon: null
+            salon: jc.horarioPorDia[dia]?.salon || null
           }));
-          deseados.push({ sede, jornada, horarios });
+          deseados.push({
+            sede,
+            jornada,
+            horarios,
+            documento_docente: jc.docenteDocumento || null,
+            nombre_docente: jc.docenteNombre || null,
+            correo_institucional: jc.docenteCorreo || null
+          });
         }
       }
 
@@ -340,15 +539,21 @@ export default function ProgramacionCicloForm({
         await fetch(`/api/planeacion/${g.id}`, { method: "DELETE" });
       }
 
-      // Crea los grupos nuevos y actualiza SOLO el horario de los que ya
-      // existían (conserva docente, grupo, salón, moodle, estado, etc.).
+      // Crea los grupos nuevos y actualiza SOLO horario/docente/salón de los
+      // que ya existían (conserva grupo, moodle, teams, estado, etc.).
       for (const [k, d] of deseadosPorClave) {
         const existente = existentesPorClave.get(k);
+        const payload = {
+          horarios: d.horarios,
+          documento_docente: d.documento_docente,
+          nombre_docente: d.nombre_docente,
+          correo_institucional: d.correo_institucional
+        };
         if (existente) {
           const res = await fetch(`/api/planeacion/${existente.id}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ horarios: d.horarios })
+            body: JSON.stringify(payload)
           });
           if (!res.ok) {
             const data = await res.json().catch(() => ({}));
@@ -363,7 +568,7 @@ export default function ProgramacionCicloForm({
               periodo,
               modalidad: d.sede,
               jornada: d.jornada,
-              horarios: d.horarios
+              ...payload
             })
           });
           if (!res.ok) {
@@ -390,8 +595,8 @@ export default function ProgramacionCicloForm({
           <h2 className="text-lg font-semibold text-gray-900">Programación del ciclo</h2>
           <p className="text-xs text-gray-400">Paso 2 de la captura</p>
         </div>
-        <button className="text-brand-600 text-sm font-medium" onClick={onVolver}>
-          ← Volver a selección académica
+        <button className="inline-flex items-center gap-1.5 text-brand-600 text-sm font-medium" onClick={onVolver}>
+          <IconArrowLeft className="w-3.5 h-3.5" /> Volver a selección académica
         </button>
       </div>
 
@@ -431,7 +636,7 @@ export default function ProgramacionCicloForm({
             {cicloInfo && (
               <p className="text-xs text-gray-400 mt-1">
                 {cicloInfo.materias} materia{cicloInfo.materias === 1 ? "" : "s"} ·{" "}
-                {cicloInfo.creditos} créditos en el ciclo
+                {cicloInfo.creditos} créditos en el ciclo — solo estas se muestran abajo
               </p>
             )}
           </div>
@@ -486,6 +691,7 @@ export default function ProgramacionCicloForm({
                             abrirMateria(item.id);
                           }}
                         >
+                          {expandida ? <IconX /> : <IconEdit />}
                           {expandida ? "Cerrar" : resumen.length > 0 ? "Editar horario" : "Programar horario"}
                         </button>
                       </div>
@@ -516,6 +722,7 @@ export default function ProgramacionCicloForm({
 
                           {[...cfg.sedes].map((sede) => {
                             const sedeCfg = cfg.porSede[sede] || { jornadas: new Set(), porJornada: {} };
+                            const salonesSede = salonesPorSede[sede];
                             return (
                               <div key={sede} className="ml-1 pl-3 border-l-2 border-brand-100 space-y-2">
                                 <p className="text-xs font-semibold text-gray-500 tracking-wide">
@@ -544,62 +751,178 @@ export default function ProgramacionCicloForm({
                                 </div>
 
                                 {[...sedeCfg.jornadas].map((jornada) => {
-                                  const jc = sedeCfg.porJornada[jornada] || { dias: new Set(), horarioPorDia: {} };
+                                  const jc = sedeCfg.porJornada[jornada] || jornadaVacia();
                                   const dias = diasVisiblesPara(jornada);
                                   return (
-                                    <div key={jornada} className="ml-1 pl-3 border-l-2 border-gray-100">
-                                      <p className="text-xs text-gray-400 mb-1">
-                                        Días — {labelJornada(jornada)}
-                                      </p>
+                                    <div key={jornada} className="ml-1 pl-3 border-l-2 border-gray-100 space-y-2">
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <p className="text-xs text-gray-400 shrink-0">
+                                          {labelJornada(jornada)} · Docente
+                                        </p>
+                                        {docentesFacultad.length > 0 ? (
+                                          <select
+                                            className="input !w-64 shrink-0 !py-1 text-sm"
+                                            value={jc.docenteDocumento}
+                                            onChange={(e) =>
+                                              actualizarDocenteJornada(item.id, sede, jornada, e.target.value)
+                                            }
+                                          >
+                                            <option value="">— Sin asignar —</option>
+                                            {docentesFacultad.map((d) => (
+                                              <option key={d.documento} value={d.documento}>
+                                                {d.nombre_completo}
+                                              </option>
+                                            ))}
+                                          </select>
+                                        ) : (
+                                          <input
+                                            className="input !w-64 shrink-0 !py-1 text-sm"
+                                            placeholder="Nombre del docente"
+                                            value={jc.docenteNombre}
+                                            onChange={(e) =>
+                                              actualizarConfig(item.id, (cfgPrev) => {
+                                                const sc = cfgPrev.porSede[sede];
+                                                const jornadaCfg = sc.porJornada[jornada];
+                                                return {
+                                                  ...cfgPrev,
+                                                  porSede: {
+                                                    ...cfgPrev.porSede,
+                                                    [sede]: {
+                                                      ...sc,
+                                                      porJornada: {
+                                                        ...sc.porJornada,
+                                                        [jornada]: { ...jornadaCfg, docenteNombre: e.target.value }
+                                                      }
+                                                    }
+                                                  }
+                                                };
+                                              })
+                                            }
+                                          />
+                                        )}
+                                      </div>
+
+                                      <p className="text-xs text-gray-400">Días — {labelJornada(jornada)}</p>
                                       <div className="space-y-1.5">
                                         {dias.map((d) => {
                                           const activo = jc.dias.has(d.value);
-                                          const h = jc.horarioPorDia[d.value] || { hora_inicio: "", hora_fin: "" };
+                                          const h = jc.horarioPorDia[d.value] || { hora_inicio: "", hora_fin: "", salon: "" };
+                                          const conflictos = activo
+                                            ? conflictosDia(item.id, sede, jornada, d.value)
+                                            : { docente: [], salon: [] };
+                                          const hayConflicto = conflictos.docente.length > 0 || conflictos.salon.length > 0;
                                           return (
-                                            <div key={d.value} className="flex flex-wrap items-center gap-2">
-                                              <label className="checkbox-pill !w-28 shrink-0">
-                                                <input
-                                                  type="checkbox"
-                                                  className="accent-brand-600"
-                                                  checked={activo}
-                                                  onChange={() => toggleDia(item.id, sede, jornada, d.value)}
-                                                />
-                                                {d.label}
-                                              </label>
-                                              {activo && (
-                                                <>
+                                            <div
+                                              key={d.value}
+                                              className={
+                                                hayConflicto
+                                                  ? "rounded-lg border border-red-300 bg-red-50 p-2"
+                                                  : ""
+                                              }
+                                            >
+                                              <div className="flex flex-wrap items-center gap-2">
+                                                <label className="checkbox-pill !w-28 shrink-0">
                                                   <input
-                                                    type="time"
-                                                    className="input !w-32 shrink-0"
-                                                    value={h.hora_inicio}
-                                                    onChange={(e) =>
-                                                      actualizarHorarioDia(
-                                                        item.id,
-                                                        sede,
-                                                        jornada,
-                                                        d.value,
-                                                        "hora_inicio",
-                                                        e.target.value
-                                                      )
-                                                    }
+                                                    type="checkbox"
+                                                    className="accent-brand-600"
+                                                    checked={activo}
+                                                    onChange={() => toggleDia(item.id, sede, jornada, d.value)}
                                                   />
-                                                  <span className="text-gray-400 text-sm">a</span>
-                                                  <input
-                                                    type="time"
-                                                    className="input !w-32 shrink-0"
-                                                    value={h.hora_fin}
-                                                    onChange={(e) =>
-                                                      actualizarHorarioDia(
-                                                        item.id,
-                                                        sede,
-                                                        jornada,
-                                                        d.value,
-                                                        "hora_fin",
-                                                        e.target.value
-                                                      )
-                                                    }
-                                                  />
-                                                </>
+                                                  {d.label}
+                                                </label>
+                                                {activo && (
+                                                  <>
+                                                    <input
+                                                      type="time"
+                                                      className="input !w-32 shrink-0"
+                                                      value={h.hora_inicio}
+                                                      onChange={(e) =>
+                                                        actualizarHorarioDia(
+                                                          item.id,
+                                                          sede,
+                                                          jornada,
+                                                          d.value,
+                                                          "hora_inicio",
+                                                          e.target.value
+                                                        )
+                                                      }
+                                                    />
+                                                    <span className="text-gray-400 text-sm">a</span>
+                                                    <input
+                                                      type="time"
+                                                      className="input !w-32 shrink-0"
+                                                      value={h.hora_fin}
+                                                      onChange={(e) =>
+                                                        actualizarHorarioDia(
+                                                          item.id,
+                                                          sede,
+                                                          jornada,
+                                                          d.value,
+                                                          "hora_fin",
+                                                          e.target.value
+                                                        )
+                                                      }
+                                                    />
+                                                    {salonesSede === null ? (
+                                                      <span className="text-xs text-gray-400">Cargando salones...</span>
+                                                    ) : salonesSede && salonesSede.length > 0 ? (
+                                                      <select
+                                                        className="input !w-44 shrink-0 !py-1.5 text-sm"
+                                                        value={h.salon}
+                                                        onChange={(e) =>
+                                                          actualizarHorarioDia(
+                                                            item.id,
+                                                            sede,
+                                                            jornada,
+                                                            d.value,
+                                                            "salon",
+                                                            e.target.value
+                                                          )
+                                                        }
+                                                      >
+                                                        <option value="">Salón...</option>
+                                                        {salonesSede.map((s) => (
+                                                          <option key={s.id} value={s.nombre}>
+                                                            {s.nombre}
+                                                            {s.capacidad ? ` (cap. ${s.capacidad})` : ""}
+                                                          </option>
+                                                        ))}
+                                                      </select>
+                                                    ) : (
+                                                      <input
+                                                        className="input !w-44 shrink-0"
+                                                        placeholder="Salón"
+                                                        value={h.salon}
+                                                        onChange={(e) =>
+                                                          actualizarHorarioDia(
+                                                            item.id,
+                                                            sede,
+                                                            jornada,
+                                                            d.value,
+                                                            "salon",
+                                                            e.target.value
+                                                          )
+                                                        }
+                                                      />
+                                                    )}
+                                                  </>
+                                                )}
+                                              </div>
+                                              {hayConflicto && (
+                                                <div className="mt-1 ml-1 space-y-0.5">
+                                                  {conflictos.docente.map((c, i) => (
+                                                    <p key={`doc-${i}`} className="text-xs text-red-700">
+                                                      ⚠ Docente ocupado {c.horaInicio}-{c.horaFin} con &quot;{c.asignatura}&quot; (
+                                                      {labelSede(c.sede)} · {labelJornada(c.jornada)})
+                                                    </p>
+                                                  ))}
+                                                  {conflictos.salon.map((c, i) => (
+                                                    <p key={`sal-${i}`} className="text-xs text-red-700">
+                                                      ⚠ Salón ocupado {c.horaInicio}-{c.horaFin} con &quot;{c.asignatura}&quot; (
+                                                      {labelSede(c.sede)} · {labelJornada(c.jornada)})
+                                                    </p>
+                                                  ))}
+                                                </div>
                                               )}
                                             </div>
                                           );
@@ -635,7 +958,7 @@ export default function ProgramacionCicloForm({
                               className="btn-secondary text-xs"
                               onClick={() => setMateriaExpandida(null)}
                             >
-                              Cancelar
+                              <IconX /> Cancelar
                             </button>
                             <button
                               type="button"
@@ -643,7 +966,7 @@ export default function ProgramacionCicloForm({
                               onClick={() => guardarMateria(item.id)}
                               disabled={guardando}
                             >
-                              {guardando ? "Guardando..." : "Guardar programación"}
+                              <IconSave /> {guardando ? "Guardando..." : "Guardar programación"}
                             </button>
                           </div>
                         </div>

@@ -5,6 +5,17 @@ import TopBar from "@/components/TopBar";
 import CambiarPasswordModal from "@/components/CambiarPasswordModal";
 import DecanoApp from "@/components/DecanoApp";
 import { SEDES } from "@/lib/constants";
+import {
+  IconArrowLeft,
+  IconUpload,
+  IconUserPlus,
+  IconChart,
+  IconDownload,
+  IconLogin,
+  IconSave,
+  IconPlus,
+  IconX
+} from "@/components/Icons";
 
 export default function AdminApp({ user }) {
   const [mostrarCambiarPassword, setMostrarCambiarPassword] = useState(
@@ -397,7 +408,7 @@ export default function AdminApp({ user }) {
             administrador: puedes crear, editar y eliminar grupos igual que su decano).
           </p>
           <button className="btn-secondary" onClick={() => setModoDecano(false)}>
-            ← Volver a Administración
+            <IconArrowLeft /> Volver a Administración
           </button>
         </div>
         <DecanoApp
@@ -444,7 +455,7 @@ export default function AdminApp({ user }) {
               />
             </div>
             <button className="btn-primary" disabled={importando}>
-              {importando ? "Cargando..." : "Cargar catálogo"}
+              <IconUpload /> {importando ? "Cargando..." : "Cargar catálogo"}
             </button>
           </form>
           {errorImport && <p className="text-sm text-red-600 mt-3">{errorImport}</p>}
@@ -487,7 +498,7 @@ export default function AdminApp({ user }) {
               />
             </div>
             <button className="btn-primary" disabled={importandoReal}>
-              {importandoReal ? "Cargando..." : "Cargar catálogo real"}
+              <IconUpload /> {importandoReal ? "Cargando..." : "Cargar catálogo real"}
             </button>
           </form>
           {errorImportReal && <p className="text-sm text-red-600 mt-3">{errorImportReal}</p>}
@@ -605,7 +616,7 @@ export default function AdminApp({ user }) {
               />
             </div>
             <button className="btn-primary" disabled={creandoUsuario}>
-              {creandoUsuario ? "Creando..." : "Crear usuario"}
+              <IconUserPlus /> {creandoUsuario ? "Creando..." : "Crear usuario"}
             </button>
           </form>
           {errorUsuario && <p className="text-sm text-red-600 mb-3">{errorUsuario}</p>}
@@ -688,14 +699,14 @@ export default function AdminApp({ user }) {
               />
             </div>
             <button className="btn-secondary" onClick={cargarResumen}>
-              Ver avance
+              <IconChart /> Ver avance
             </button>
             {periodoResumen && (
               <a
                 href={`/api/admin/exportar?periodo=${encodeURIComponent(periodoResumen)}`}
                 className="btn-primary"
               >
-                Descargar Excel consolidado
+                <IconDownload /> Descargar Excel consolidado
               </a>
             )}
           </div>
@@ -766,7 +777,7 @@ export default function AdminApp({ user }) {
               disabled={!facultadElegida}
               onClick={() => setModoDecano(true)}
             >
-              Entrar como decano de esta facultad
+              <IconLogin /> Entrar como decano de esta facultad
             </button>
           </div>
         </section>
@@ -795,7 +806,7 @@ export default function AdminApp({ user }) {
               </p>
             </div>
             <button className="btn-primary" disabled={importandoDocentes}>
-              {importandoDocentes ? "Cargando..." : "Cargar docentes"}
+              <IconUpload /> {importandoDocentes ? "Cargando..." : "Cargar docentes"}
             </button>
           </form>
           {errorImportDocentes && <p className="text-sm text-red-600 mb-3">{errorImportDocentes}</p>}
@@ -852,7 +863,7 @@ export default function AdminApp({ user }) {
               />
             </div>
             <button className="btn-primary" disabled={guardandoDocente}>
-              {guardandoDocente ? "Guardando..." : "Guardar docente"}
+              <IconSave /> {guardandoDocente ? "Guardando..." : "Guardar docente"}
             </button>
           </form>
           {errorDocente && <p className="text-sm text-red-600 mb-3">{errorDocente}</p>}
@@ -943,7 +954,7 @@ export default function AdminApp({ user }) {
               </p>
             </div>
             <button className="btn-primary" disabled={importandoSalones}>
-              {importandoSalones ? "Cargando..." : "Cargar salones"}
+              <IconUpload /> {importandoSalones ? "Cargando..." : "Cargar salones"}
             </button>
           </form>
           {errorImportSalones && <p className="text-sm text-red-600 mb-3">{errorImportSalones}</p>}
@@ -1020,6 +1031,7 @@ export default function AdminApp({ user }) {
             </div>
             <div className="flex gap-2">
               <button className="btn-primary" disabled={guardandoSalon}>
+                {nuevoSalon.id ? <IconSave /> : <IconPlus />}{" "}
                 {guardandoSalon ? "Guardando..." : nuevoSalon.id ? "Guardar cambios" : "Agregar salón"}
               </button>
               {nuevoSalon.id && (
@@ -1038,7 +1050,7 @@ export default function AdminApp({ user }) {
                     })
                   }
                 >
-                  Cancelar
+                  <IconX /> Cancelar
                 </button>
               )}
             </div>

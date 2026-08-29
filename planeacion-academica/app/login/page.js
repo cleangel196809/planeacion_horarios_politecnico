@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { IconLogin, IconArrowLeft } from "@/components/Icons";
 
 function OlvidePasswordForm({ onCerrar }) {
   const [username, setUsername] = useState("");
@@ -48,10 +49,10 @@ function OlvidePasswordForm({ onCerrar }) {
         )}
         <div className="flex gap-2">
           <button type="submit" className="btn-primary flex-1" disabled={loading}>
-            {loading ? "Enviando..." : "Enviar enlace"}
+            <IconLogin /> {loading ? "Enviando..." : "Enviar enlace"}
           </button>
           <button type="button" className="btn-secondary" onClick={onCerrar}>
-            Volver
+            <IconArrowLeft /> Volver
           </button>
         </div>
       </form>
@@ -98,11 +99,14 @@ export default function LoginPage() {
   return (
     <main className="min-h-screen flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
-        <div className="text-center mb-8">
-          <h1 className="text-2xl font-bold text-gray-900">Planeación Académica</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Captura de la planeación del siguiente ciclo de formación
-          </p>
+        <div className="flex flex-col items-center text-center mb-8 gap-3">
+          <img src="/isologo.png" alt="Politécnico Internacional" className="h-16 w-auto" />
+          <div>
+            <h1 className="text-2xl font-bold text-brand-900">Planeación Académica</h1>
+            <p className="text-sm text-gray-500 mt-1">
+              Captura de la planeación del siguiente ciclo de formación
+            </p>
+          </div>
         </div>
 
         {mostrarOlvide ? (
@@ -141,7 +145,7 @@ export default function LoginPage() {
               )}
 
               <button type="submit" className="btn-primary w-full" disabled={loading}>
-                {loading ? "Ingresando..." : "Ingresar"}
+                <IconLogin /> {loading ? "Ingresando..." : "Ingresar"}
               </button>
             </form>
 

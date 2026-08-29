@@ -3,6 +3,7 @@
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { IconSave } from "@/components/Icons";
 
 function ResetPasswordForm() {
   const router = useRouter();
@@ -49,8 +50,9 @@ function ResetPasswordForm() {
   return (
     <main className="min-h-screen flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
-        <div className="text-center mb-8">
-          <h1 className="text-2xl font-bold text-gray-900">Restablecer contraseña</h1>
+        <div className="flex flex-col items-center text-center mb-8 gap-3">
+          <img src="/isologo.png" alt="Politécnico Internacional" className="h-16 w-auto" />
+          <h1 className="text-2xl font-bold text-brand-900">Restablecer contraseña</h1>
         </div>
 
         {exito ? (
@@ -94,7 +96,7 @@ function ResetPasswordForm() {
             </div>
             {error && <p className="text-sm text-red-600">{error}</p>}
             <button type="submit" className="btn-primary w-full" disabled={loading}>
-              {loading ? "Guardando..." : "Restablecer contraseña"}
+              <IconSave /> {loading ? "Guardando..." : "Restablecer contraseña"}
             </button>
           </form>
         )}

@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import ProgramacionCicloForm from "@/components/ProgramacionCicloForm";
+import FormHeader from "@/components/FormHeader";
+import { IconX, IconCheck } from "@/components/Icons";
 
 // Asistente "Selección académica" para el decano:
 // Paso 1) Facultad (fija, la del decano) → Programa → Plan → Periodo de
@@ -121,16 +123,17 @@ export default function NuevoFormularioWizard({ periodos, facultadOverride, onCl
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4 py-8">
       <div className="card w-full max-w-6xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-start justify-between mb-4">
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900">Selección académica</h2>
-            <p className="text-sm text-gray-500">
-              {paso === 1
+          <FormHeader
+            titulo="Selección académica"
+            subtitulo={
+              paso === 1
                 ? "Elige el programa, el plan y el periodo de formación."
-                : "Define la programación del ciclo: materias, sedes, jornadas y horario."}
-            </p>
-          </div>
+                : "Define la programación del ciclo: materias, sedes, jornadas y horario."
+            }
+            size="lg"
+          />
           <button className="text-gray-400 hover:text-gray-600 text-xl leading-none" onClick={onClose}>
-            ×
+            <IconX className="w-5 h-5" />
           </button>
         </div>
 
@@ -271,10 +274,10 @@ export default function NuevoFormularioWizard({ periodos, facultadOverride, onCl
                 </p>
                 <div className="flex gap-2">
                   <button className="btn-secondary" onClick={onClose}>
-                    Cancelar
+                    <IconX /> Cancelar
                   </button>
                   <button className="btn-primary" onClick={registrarSeleccion}>
-                    Registrar selección
+                    <IconCheck /> Registrar selección
                   </button>
                 </div>
               </div>

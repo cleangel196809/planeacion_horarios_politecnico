@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { SEDES, JORNADAS, ESTADOS, DIAS } from "@/lib/constants";
+import { IconX, IconSave } from "@/components/Icons";
 
 const HORARIO_VACIO = { hora_inicio: "", hora_fin: "", salon: "" };
 
@@ -467,10 +468,10 @@ export default function GrupoForm({ facultad, initial, onCancel, onSubmit }) {
 
       <div className="flex gap-2 justify-end">
         <button type="button" className="btn-secondary" onClick={onCancel}>
-          Cancelar
+          <IconX /> Cancelar
         </button>
         <button type="submit" className="btn-primary" disabled={guardando}>
-          {guardando ? "Guardando..." : isEdit ? "Guardar cambios" : "Crear grupo"}
+          <IconSave /> {guardando ? "Guardando..." : isEdit ? "Guardar cambios" : "Crear grupo"}
         </button>
       </div>
     </form>

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { SEDES, JORNADAS, CICLOS } from "@/lib/constants";
+import { IconCheck } from "@/components/Icons";
 
 const LIMITE_VISIBLE = 80;
 
@@ -237,6 +238,7 @@ export default function ConfirmarCatalogoReal({ items, periodo, onConfirmado }) 
 
       <div className="flex justify-end mt-3">
         <button className="btn-primary" onClick={confirmarSeleccionados} disabled={guardando}>
+          <IconCheck />{" "}
           {guardando
             ? "Confirmando..."
             : `Confirmar ${seleccionados.size || ""} fila${seleccionados.size === 1 ? "" : "s"}`.trim()}

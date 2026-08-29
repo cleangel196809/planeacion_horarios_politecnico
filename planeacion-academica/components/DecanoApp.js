@@ -8,6 +8,7 @@ import EstadoBadge from "@/components/EstadoBadge";
 import NuevoFormularioWizard from "@/components/NuevoFormularioWizard";
 import ConfirmarCatalogoReal from "@/components/ConfirmarCatalogoReal";
 import { SEDES, JORNADAS, DIAS } from "@/lib/constants";
+import { IconPlus, IconDownload, IconEdit, IconTrash } from "@/components/Icons";
 
 function labelSede(v) {
   return SEDES.find((s) => s.value === v)?.label || v || "—";
@@ -175,13 +176,13 @@ export default function DecanoApp({ user, facultadOverride, titulo }) {
         {periodo && (
           <>
             <button className="btn-primary" onClick={() => setMostrarWizard(true)}>
-              + Nuevo formulario
+              <IconPlus /> Nuevo formulario
             </button>
             <a
               href={`/api/planeacion/exportar?periodo=${encodeURIComponent(periodo)}${qsFacultad}`}
               className="btn-secondary"
             >
-              Descargar {facultadOverride ? "el" : "mi"} Excel
+              <IconDownload /> Descargar {facultadOverride ? "el" : "mi"} Excel
             </a>
           </>
         )}
@@ -251,7 +252,7 @@ export default function DecanoApp({ user, facultadOverride, titulo }) {
                       setFormularioAbiertoPara(formularioAbiertoPara === item.id ? null : item.id)
                     }
                   >
-                    + Agregar grupo
+                    <IconPlus /> Agregar grupo
                   </button>
                 </div>
 
@@ -284,16 +285,16 @@ export default function DecanoApp({ user, facultadOverride, titulo }) {
                             </td>
                             <td className="py-1.5 pr-3 text-right whitespace-nowrap">
                               <button
-                                className="text-brand-600 text-xs font-medium mr-3"
+                                className="inline-flex items-center gap-1 text-brand-600 text-xs font-medium mr-3"
                                 onClick={() => setEditando(g)}
                               >
-                                Editar
+                                <IconEdit className="w-3.5 h-3.5" /> Editar
                               </button>
                               <button
-                                className="text-red-600 text-xs font-medium"
+                                className="inline-flex items-center gap-1 text-red-600 text-xs font-medium"
                                 onClick={() => eliminarGrupo(g.id)}
                               >
-                                Eliminar
+                                <IconTrash className="w-3.5 h-3.5" /> Eliminar
                               </button>
                             </td>
                           </tr>
