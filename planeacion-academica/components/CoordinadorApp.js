@@ -110,6 +110,8 @@ export default function CoordinadorApp({ user }) {
           <a
             href={`/api/planeacion/exportar?periodo=${encodeURIComponent(periodo)}`}
             className="btn-secondary"
+            target="_blank"
+            rel="noopener noreferrer"
           >
             <IconDownload /> Descargar Excel
           </a>

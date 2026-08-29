@@ -731,6 +731,8 @@ export default function AdminApp({ user }) {
               <a
                 href={`/api/admin/exportar?periodo=${encodeURIComponent(periodoResumen)}`}
                 className="btn-primary"
+                target="_blank"
+                rel="noopener noreferrer"
               >
                 <IconDownload /> Descargar Excel consolidado
               </a>

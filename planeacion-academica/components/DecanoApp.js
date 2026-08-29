@@ -207,6 +207,8 @@ export default function DecanoApp({ user, facultadOverride, titulo }) {
             <a
               href={`/api/planeacion/exportar?periodo=${encodeURIComponent(periodo)}${qsFacultad}`}
               className="btn-secondary"
+              target="_blank"
+              rel="noopener noreferrer"
             >
               <IconDownload /> Descargar {facultadOverride ? "el" : "mi"} Excel
             </a>
