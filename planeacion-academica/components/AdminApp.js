@@ -14,7 +14,8 @@ import {
   IconLogin,
   IconSave,
   IconPlus,
-  IconX
+  IconX,
+  IconTrash
 } from "@/components/Icons";
 
 export default function AdminApp({ user }) {
@@ -322,6 +323,31 @@ export default function AdminApp({ user }) {
       body: JSON.stringify({ id })
     });
     cargarSalones();
+  }
+
+  // Borra de un solo golpe todos los salones cargados para una sede (por
+  // ejemplo, para limpiar una sede cargada por error antes de reimportarla).
+  async function eliminarSalonesDeSede(sede, cantidad) {
+    if (
+      !confirm(
+        `¿Eliminar los ${cantidad} salones de "${sede}"? Esta acción no se puede deshacer.`
+      )
+    )
+      return;
+    setErrorSalon("");
+    try {
+      const res = await fetch("/api/admin/salones", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sede })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setFiltroSedeSalon("");
+      cargarSalones();
+    } catch (err) {
+      setErrorSalon(err.message);
+    }
   }
 
   function editarSalon(s) {
@@ -1057,20 +1083,31 @@ export default function AdminApp({ user }) {
           </form>
           {errorSalon && <p className="text-sm text-red-600 mb-3">{errorSalon}</p>}
 
-          <div className="flex items-center justify-between mb-2">
-            <label className="label mb-0">Filtrar por sede</label>
-            <select
-              className="input max-w-xs"
-              value={filtroSedeSalon}
-              onChange={(e) => setFiltroSedeSalon(e.target.value)}
-            >
-              <option value="">Todas ({salones.length})</option>
-              {sedesSalones.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <div className="flex items-center gap-2">
+              <label className="label mb-0">Filtrar por sede</label>
+              <select
+                className="input max-w-xs"
+                value={filtroSedeSalon}
+                onChange={(e) => setFiltroSedeSalon(e.target.value)}
+              >
+                <option value="">Todas ({salones.length})</option>
+                {sedesSalones.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {filtroSedeSalon && (
+              <button
+                type="button"
+                className="btn-danger"
+                onClick={() => eliminarSalonesDeSede(filtroSedeSalon, salonesFiltrados.length)}
+              >
+                <IconTrash /> Eliminar todos los de {filtroSedeSalon} ({salonesFiltrados.length})
+              </button>
+            )}
           </div>
 
           <div className="overflow-x-auto max-h-96 overflow-y-auto">

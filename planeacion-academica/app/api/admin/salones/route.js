@@ -77,8 +77,17 @@ async function DELETE(req) {
   try {
     requireAdmin();
     const body = await req.json();
+
+    // Borrado masivo: todos los salones de una sede (por ejemplo, para
+    // limpiar una sede que se cargó mal antes de volver a importarla).
+    if (body.sede) {
+      const sede = String(body.sede).trim();
+      const { rowCount } = await query("DELETE FROM salones WHERE sede = $1", [sede]);
+      return ok({ success: true, eliminados: rowCount });
+    }
+
     if (!body.id) {
-      const err = new Error("Se requiere id.");
+      const err = new Error("Se requiere id o sede.");
       err.status = 400;
       throw err;
     }
