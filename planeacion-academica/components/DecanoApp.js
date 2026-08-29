@@ -36,6 +36,7 @@ export default function DecanoApp({ user, facultadOverride, titulo }) {
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState("");
   const [busqueda, setBusqueda] = useState("");
+  const [cicloSeleccionado, setCicloSeleccionado] = useState("");
   const [formularioAbiertoPara, setFormularioAbiertoPara] = useState(null); // catalogo_id
   const [editando, setEditando] = useState(null); // planeacion row
   const [mostrarWizard, setMostrarWizard] = useState(false);
@@ -78,6 +79,7 @@ export default function DecanoApp({ user, facultadOverride, titulo }) {
       if (!planRes.ok) throw new Error(planData.error);
 
       setCatalogo(catData.catalogo || []);
+      setCicloSeleccionado("");
       const agrupado = {};
       for (const p of planData.planeacion || []) {
         agrupado[p.catalogo_id] = agrupado[p.catalogo_id] || [];
@@ -103,13 +105,37 @@ export default function DecanoApp({ user, facultadOverride, titulo }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [periodo]);
 
+  // Ciclos de formación presentes en el catálogo del período (con la cuenta
+  // de materias de cada uno), para que el decano elija uno y solo se vean
+  // las materias de ese ciclo — el resto de la lista queda oculta.
+  const ciclos = useMemo(() => {
+    const map = new Map();
+    for (const item of catalogo) {
+      const key = String(item.ciclo || "Sin ciclo");
+      map.set(key, (map.get(key) || 0) + 1);
+    }
+    return Array.from(map.entries())
+      .map(([ciclo, materias]) => ({ ciclo, materias }))
+      .sort((a, b) => {
+        const na = Number(a.ciclo);
+        const nb = Number(b.ciclo);
+        if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
+        return a.ciclo.localeCompare(b.ciclo);
+      });
+  }, [catalogo]);
+
+  const materiasDelCiclo = useMemo(() => {
+    if (!cicloSeleccionado) return [];
+    return catalogo.filter((c) => String(c.ciclo || "Sin ciclo") === cicloSeleccionado);
+  }, [catalogo, cicloSeleccionado]);
+
   const catalogoFiltrado = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
-    if (!q) return catalogo;
-    return catalogo.filter((c) =>
+    if (!q) return materiasDelCiclo;
+    return materiasDelCiclo.filter((c) =>
       [c.asignatura, c.programa, c.plan, c.ciclo].join(" ").toLowerCase().includes(q)
     );
-  }, [catalogo, busqueda]);
+  }, [materiasDelCiclo, busqueda]);
 
   // Filas que llegaron del archivo real de carreras y materias (traen su
   // propio GRUPO) y que todavía no tienen ningún grupo de planeación creado:
@@ -201,15 +227,32 @@ export default function DecanoApp({ user, facultadOverride, titulo }) {
               ))}
             </select>
           </div>
-          <div className="flex-1 min-w-[200px]">
-            <label className="label">Buscar asignatura</label>
-            <input
+          <div>
+            <label className="label">Ciclo de formación</label>
+            <select
               className="input"
-              placeholder="Nombre de la asignatura, programa o plan..."
-              value={busqueda}
-              onChange={(e) => setBusqueda(e.target.value)}
-            />
+              value={cicloSeleccionado}
+              onChange={(e) => setCicloSeleccionado(e.target.value)}
+            >
+              <option value="">Selecciona un ciclo...</option>
+              {ciclos.map((c) => (
+                <option key={c.ciclo} value={c.ciclo}>
+                  {c.ciclo === "Sin ciclo" ? "Sin ciclo" : `Ciclo ${c.ciclo}`} ({c.materias})
+                </option>
+              ))}
+            </select>
           </div>
+          {cicloSeleccionado && (
+            <div className="flex-1 min-w-[200px]">
+              <label className="label">Buscar asignatura</label>
+              <input
+                className="input"
+                placeholder="Nombre de la asignatura, programa o plan..."
+                value={busqueda}
+                onChange={(e) => setBusqueda(e.target.value)}
+              />
+            </div>
+          )}
         </div>
 
         {error && (
@@ -228,11 +271,19 @@ export default function DecanoApp({ user, facultadOverride, titulo }) {
 
         {cargando && <p className="text-sm text-gray-500">Cargando...</p>}
 
-        <ConfirmarCatalogoReal
-          items={pendientesConfirmar}
-          periodo={periodo}
-          onConfirmado={() => cargarDatos(periodo)}
-        />
+        {!cargando && periodos.length > 0 && !cicloSeleccionado && (
+          <div className="card text-center text-gray-500">
+            Selecciona un ciclo de formación arriba para ver sus materias.
+          </div>
+        )}
+
+        {cicloSeleccionado && (
+          <ConfirmarCatalogoReal
+            items={pendientesConfirmar}
+            periodo={periodo}
+            onConfirmado={() => cargarDatos(periodo)}
+          />
+        )}
 
         <div className="space-y-3">
           {catalogoFiltrado.map((item) => {
