@@ -49,11 +49,14 @@ async function GET(req) {
 
     const buffer = await buildPlaneacionExcel(rowsForExcel, docentesRows);
 
+    // Content-Length explícito: ver nota en /api/planeacion/exportar sobre
+    // por qué esto evita el aviso "Necesita permiso para descargarse" en Chrome.
     return new Response(buffer, {
       status: 200,
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "Content-Disposition": `attachment; filename="PLANEACION_${periodo}.xlsx"`
+        "Content-Disposition": `attachment; filename="PLANEACION_${periodo}.xlsx"`,
+        "Content-Length": String(buffer.length)
       }
     });
   } catch (err) {

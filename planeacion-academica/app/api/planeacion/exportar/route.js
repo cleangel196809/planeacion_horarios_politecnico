@@ -57,11 +57,16 @@ async function GET(req) {
 
     const buffer = await buildPlaneacionExcel(rowsForExcel, []);
 
+    // Content-Length explícito: sin él, la respuesta viaja "chunked" (tamaño
+    // desconocido de antemano) y algunos navegadores -Chrome en particular-
+    // tratan esas descargas como menos confiables y piden permiso extra al
+    // usuario ("Necesita permiso para descargarse") en vez de bajarlas de una.
     return new Response(buffer, {
       status: 200,
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "Content-Disposition": `attachment; filename="PLANEACION_${facultad}_${periodo}.xlsx"`
+        "Content-Disposition": `attachment; filename="PLANEACION_${facultad}_${periodo}.xlsx"`,
+        "Content-Length": String(buffer.length)
       }
     });
   } catch (err) {
