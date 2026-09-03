@@ -6,6 +6,7 @@ import CambiarPasswordModal from "@/components/CambiarPasswordModal";
 import DecanoApp from "@/components/DecanoApp";
 import SalonesManager from "@/components/SalonesManager";
 import SedesManager from "@/components/SedesManager";
+import MantenimientoBD from "@/components/MantenimientoBD";
 import {
   IconArrowLeft,
   IconUpload,
@@ -412,7 +413,7 @@ export default function AdminApp({ user }) {
                     estas contraseñas: no se volverán a mostrar.
                   </p>
                   <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
+                    <table className="table-sap">
                       <thead>
                         <tr className="text-left text-gray-500 border-b">
                           <th className="py-1 pr-3">Facultad</th>
@@ -520,7 +521,7 @@ export default function AdminApp({ user }) {
           {errorUsuario && <p className="text-sm text-red-600 mb-3">{errorUsuario}</p>}
 
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="table-sap">
               <thead>
                 <tr className="text-left text-gray-500 border-b">
                   <th className="py-1 pr-3">Usuario</th>
@@ -615,7 +616,7 @@ export default function AdminApp({ user }) {
 
           {resumen && (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="table-sap">
                 <thead>
                   <tr className="text-left text-gray-500 border-b">
                     <th className="py-1 pr-3">Facultad</th>
@@ -787,7 +788,7 @@ export default function AdminApp({ user }) {
           </div>
 
           <div className="overflow-x-auto max-h-96 overflow-y-auto">
-            <table className="w-full text-sm">
+            <table className="table-sap">
               <thead>
                 <tr className="text-left text-gray-500 border-b">
                   <th className="py-1 pr-3">Documento</th>
@@ -835,6 +836,8 @@ export default function AdminApp({ user }) {
         <SedesManager />
 
         <SalonesManager />
+
+        <MantenimientoBD />
       </main>
     </div>
   );

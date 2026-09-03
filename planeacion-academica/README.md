@@ -75,6 +75,19 @@ el Excel final consolidado, con la misma estructura de la plantilla
    reflejos/cierres que ya maneja el sistema de Consulta de Horarios
    existente).
 
+9. **Mantenimiento de la base de datos** (backup y eliminación): en el
+   panel de administración, sección "6. Mantenimiento de la base de
+   datos". El admin puede descargar en cualquier momento una copia de
+   seguridad completa (`GET /api/admin/backup`, ver `lib/dbBackup.js`) en
+   un archivo `.sql` con un `INSERT` por tabla listo para pegar en el
+   editor SQL de Neon si hay que restaurar. También puede eliminar todos
+   los datos de un período puntual (catálogo, planeación con sus
+   horarios, y estudiantes cargados para ese período — no toca usuarios,
+   sedes, salones ni docentes) desde `DELETE /api/admin/eliminar-periodo`.
+   Esa eliminación exige rol admin, corre en una sola transacción
+   (todo-o-nada) y solo se ejecuta si el texto de confirmación coincide
+   exactamente con el período, para evitar un borrado accidental.
+
 Si alguno de estos supuestos no encaja con cómo trabaja realmente tu
 institución, son fáciles de ajustar — dímelo y los cambiamos.
 
