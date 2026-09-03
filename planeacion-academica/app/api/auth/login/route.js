@@ -1,6 +1,6 @@
 const { cookies } = require("next/headers");
 const { query } = require("@/lib/db");
-const { verifyPassword, signSession, COOKIE_NAME } = require("@/lib/auth");
+const { verifyPassword, hashPassword, esHashAntiguo, signSession, COOKIE_NAME } = require("@/lib/auth");
 const { jsonError, ok } = require("@/lib/apiHelpers");
 
 async function POST(req) {
@@ -28,6 +28,17 @@ async function POST(req) {
       const err = new Error("Usuario o contraseña incorrectos.");
       err.status = 401;
       throw err;
+    }
+
+    // Renovación silenciosa: si la cuenta todavía tenía un hash bcrypt (de
+    // antes de la migración a Argon2id), se reemplaza por uno Argon2id
+    // ahora que ya sabemos que la contraseña en texto plano es correcta.
+    if (esHashAntiguo(user.password_hash)) {
+      const nuevoHash = await hashPassword(password);
+      await query("UPDATE usuarios SET password_hash = $1 WHERE id = $2", [
+        nuevoHash,
+        user.id
+      ]);
     }
 
     const token = signSession(user);

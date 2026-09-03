@@ -1,7 +1,7 @@
 // Crea (o actualiza la contraseña de) el usuario administrador inicial.
 // Uso: DATABASE_URL=... ADMIN_USERNAME=admin ADMIN_PASSWORD=... node scripts/seed.js
 const { Pool } = require("pg");
-const bcrypt = require("bcryptjs");
+const { hashPassword } = require("../lib/auth");
 
 async function main() {
   const connectionString =
@@ -22,7 +22,7 @@ async function main() {
     ssl: esLocal ? undefined : { rejectUnauthorized: false }
   });
 
-  const hash = await bcrypt.hash(password, 10);
+  const hash = await hashPassword(password);
 
   await pool.query(
     `INSERT INTO usuarios (username, password_hash, rol, nombre, facultad, debe_cambiar_password)
