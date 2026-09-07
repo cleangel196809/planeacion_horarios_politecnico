@@ -18,6 +18,11 @@ CREATE TABLE IF NOT EXISTS usuarios (
 
 -- Catálogo base de asignaturas ofertables, cargado por el admin desde el Excel
 -- de cada ciclo (columnas fijas: FACULTAD, PROGRAMA, PLAN, ASIGNATURA, CICLO, CREDITOS).
+-- GRUPO, JORNADA y SEDE son las columnas adicionales que trae el archivo real
+-- de "carreras y materias" (ver app/api/admin/importar-real/route.js); antes
+-- vivían en una migración aparte (migracion_catalogo_real.sql) que nunca se
+-- había incorporado aquí, así que una base de datos nueva creada solo con
+-- este esquema fallaba al usar esa carga. Ya quedan incluidas desde el inicio.
 CREATE TABLE IF NOT EXISTS catalogo (
   id         SERIAL PRIMARY KEY,
   periodo    TEXT NOT NULL,
@@ -29,6 +34,9 @@ CREATE TABLE IF NOT EXISTS catalogo (
   asignatura TEXT NOT NULL,
   ciclo      TEXT,
   creditos   NUMERIC,
+  grupo      TEXT,
+  jornada    TEXT,   -- DIURNA | ESPECIAL | NOCHE | SABADO | VIRTUAL
+  sede       TEXT,   -- CALLE 73 | NORTE | SUR | ASISTIDA POR TECNOLOGIA
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   -- LLAVE por sí sola no siempre es única en los datos reales (una misma
   -- asignatura puede reutilizar el mismo código bajo dos planes/ciclos

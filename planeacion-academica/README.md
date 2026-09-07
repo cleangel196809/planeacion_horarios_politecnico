@@ -238,3 +238,33 @@ cero, no necesitas este paso — ya está incluido en `db/schema.sql`.
   contraseña obligatorio, recuperación de contraseña por correo —incluido
   el caso sin SMTP configurado— y exportación) usando el archivo Excel que
   compartiste como catálogo de prueba.
+- **(2026-09-07) Pruebas de extremo a extremo completas + corrección de
+  esquema.** Se montó un entorno de prueba aislado (Postgres local + la
+  misma versión del código ya subida a GitHub) y se ejecutaron ~60 pruebas
+  automatizadas cubriendo: login/logout, "olvidé mi contraseña" y
+  restablecimiento por token (con y sin correo asociado), cambio de
+  contraseña; las 4 cargas por Excel (catálogo base, catálogo real,
+  docentes, salones, estudiantes) y la creación automática de decanos por
+  facultad; el CRUD de catálogo/planeación con horarios y los permisos por
+  rol (decano solo su facultad, coordinador de solo consulta, secretaría
+  académica y admin con sus alcances propios); consulta del coordinador
+  (por grupo, materia, cédula de docente y de estudiante); envío masivo de
+  horarios (validado que no falla sin SMTP configurado); resumen, backup,
+  exportación a Excel y eliminación de período con confirmación; y las
+  redirecciones de cada página según sesión/rol. Se encontró y corrigió un
+  error real preexistente (no relacionado con la migración a Next.js 15):
+  la tabla `catalogo` en `db/schema.sql` no incluía las columnas `grupo`,
+  `jornada` y `sede` que usa la carga del archivo real de "carreras y
+  materias" (`/api/admin/importar-real`) — esas columnas vivían solo en
+  `db/migracion_catalogo_real.sql`, una migración aparte que nunca se había
+  incorporado al esquema base. Por eso, una base de datos **nueva** creada
+  únicamente con `schema.sql` (por ejemplo, para un ambiente de prueba o un
+  nuevo despliegue) fallaba al usar esa función. Ya quedaron incluidas
+  directamente en `schema.sql`. **Si tu base de datos de Neon ya está en
+  producción y esa función de "cargar catálogo real" ya te ha funcionado
+  antes**, esas columnas ya existen ahí y no necesitas hacer nada; si nunca
+  la habías usado o no estás seguro, puedes ejecutar una vez (es seguro
+  repetirlo, no borra nada) el contenido de `db/migracion_catalogo_real.sql`
+  en el editor SQL de Neon para dejar tu base de datos igual que un
+  despliegue nuevo. No se encontró ningún otro error en el resto de la
+  aplicación.
