@@ -2,13 +2,15 @@
 const nextConfig = {
   eslint: { ignoreDuringBuilds: true },
   experimental: {
-    serverActions: { bodySizeLimit: "15mb" },
-    // @node-rs/argon2 (hashing Argon2id) trae un binario nativo (.node) —
-    // hay que dejarlo fuera del empaquetado de webpack para que Node lo
-    // cargue directo en tiempo de ejecución, igual que ya se hace abajo
-    // con bufferutil/utf-8-validate.
-    serverComponentsExternalPackages: ["@node-rs/argon2"]
+    serverActions: { bodySizeLimit: "15mb" }
   },
+  // @node-rs/argon2 (hashing Argon2id) trae un binario nativo (.node) —
+  // hay que dejarlo fuera del empaquetado para que Node lo cargue directo
+  // en tiempo de ejecución, igual que ya se hace abajo con
+  // bufferutil/utf-8-validate. (Next.js 15: esta opción se estabilizó y
+  // se movió de experimental.serverComponentsExternalPackages a
+  // serverExternalPackages, en la raíz de la config.)
+  serverExternalPackages: ["@node-rs/argon2"],
   webpack: (config, { isServer }) => {
     if (isServer) {
       // El driver "serverless" de Neon (@neondatabase/serverless) usa el

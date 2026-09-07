@@ -6,7 +6,7 @@ const { jsonError, ok } = require("@/lib/apiHelpers");
 // /api/docentes, que es de solo búsqueda y usan decano/coordinador).
 async function GET(req) {
   try {
-    requireAdmin();
+    await requireAdmin();
     const { searchParams } = new URL(req.url);
     const facultad = searchParams.get("facultad");
 
@@ -32,7 +32,7 @@ async function GET(req) {
 // de administración, y para el resultado de la carga por Excel.
 async function POST(req) {
   try {
-    requireAdmin();
+    await requireAdmin();
     const body = await req.json();
     const documento = String(body.documento || "").trim();
     const nombreCompleto = String(body.nombre_completo || "").trim();
@@ -64,7 +64,7 @@ async function POST(req) {
 
 async function DELETE(req) {
   try {
-    requireAdmin();
+    await requireAdmin();
     const body = await req.json();
     const documento = String(body.documento || "").trim();
     if (!documento) {

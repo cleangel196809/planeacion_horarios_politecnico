@@ -33,8 +33,9 @@ async function getOwned(id, user) {
 
 async function PUT(req, { params }) {
   try {
-    const user = requireEditor();
-    const id = Number(params.id);
+    const user = await requireEditor();
+    const { id: idParam } = await params;
+    const id = Number(idParam);
     const existing = await getOwned(id, user);
 
     const body = await req.json();
@@ -103,8 +104,9 @@ async function PUT(req, { params }) {
 
 async function DELETE(req, { params }) {
   try {
-    const user = requireEditor();
-    const id = Number(params.id);
+    const user = await requireEditor();
+    const { id: idParam } = await params;
+    const id = Number(idParam);
     await getOwned(id, user);
     await query("DELETE FROM planeacion WHERE id = $1", [id]);
     return ok({ success: true });

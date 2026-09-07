@@ -31,7 +31,7 @@ async function attachHorarios(rows) {
 // grupo, ver db/schema.sql), no en una tabla de inscripciones.
 async function GET(req) {
   try {
-    const user = requireUser();
+    const user = await requireUser();
     const { searchParams } = new URL(req.url);
     const periodo = searchParams.get("periodo");
     if (!periodo) {

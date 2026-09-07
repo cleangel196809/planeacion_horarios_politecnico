@@ -11,7 +11,7 @@ const { SEDES: SEDES_ETIQUETAS } = require("@/lib/constants");
 // nueva usa su propio nombre tal cual se escribió.
 async function GET() {
   try {
-    requireUser();
+    await requireUser();
     const { rows } = await query(
       "SELECT nombre FROM sedes WHERE activa = TRUE ORDER BY nombre"
     );

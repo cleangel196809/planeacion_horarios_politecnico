@@ -42,7 +42,7 @@ async function POST(req) {
     }
 
     const token = signSession(user);
-    cookies().set(COOKIE_NAME, token, {
+    (await cookies()).set(COOKIE_NAME, token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",

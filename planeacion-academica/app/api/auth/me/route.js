@@ -2,7 +2,7 @@ const { getCurrentUser } = require("@/lib/session");
 const { ok } = require("@/lib/apiHelpers");
 
 async function GET() {
-  const user = getCurrentUser();
+  const user = await getCurrentUser();
   return ok({ user });
 }
 

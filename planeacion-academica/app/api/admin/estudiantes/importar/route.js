@@ -5,7 +5,7 @@ const { jsonError, ok } = require("@/lib/apiHelpers");
 
 async function POST(req) {
   try {
-    const user = requireStaff();
+    const user = await requireStaff();
 
     const formData = await req.formData();
     const file = formData.get("archivo");

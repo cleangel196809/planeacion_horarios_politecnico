@@ -6,7 +6,7 @@ const { jsonError } = require("@/lib/apiHelpers");
 // Permite a un decano descargar únicamente el avance de su propia facultad.
 async function GET(req) {
   try {
-    const user = requireUser();
+    const user = await requireUser();
     const { searchParams } = new URL(req.url);
     const periodo = searchParams.get("periodo");
     if (!periodo) {

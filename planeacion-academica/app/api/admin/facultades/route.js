@@ -8,7 +8,7 @@ const { jsonError, ok } = require("@/lib/apiHelpers");
 // restringida solo al admin): esta ruta solo expone los nombres de facultad.
 async function GET() {
   try {
-    requireStaff();
+    await requireStaff();
     const { rows } = await query(
       `SELECT DISTINCT facultad FROM usuarios
        WHERE rol IN ('decano', 'coordinador') AND facultad IS NOT NULL

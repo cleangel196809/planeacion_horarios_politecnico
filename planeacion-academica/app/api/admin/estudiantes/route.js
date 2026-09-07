@@ -6,7 +6,7 @@ const LIMITE = 500;
 
 async function GET(req) {
   try {
-    requireStaff();
+    await requireStaff();
     const { searchParams } = new URL(req.url);
     const periodo = searchParams.get("periodo");
     const facultad = searchParams.get("facultad");
@@ -48,7 +48,7 @@ async function GET(req) {
 
 async function DELETE(req) {
   try {
-    requireStaff();
+    await requireStaff();
     const body = await req.json();
 
     // Borrado masivo: todo el archivo cargado para un período (y, si se

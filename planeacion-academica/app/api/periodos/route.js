@@ -4,7 +4,7 @@ const { jsonError, ok } = require("@/lib/apiHelpers");
 
 async function GET(req) {
   try {
-    const user = requireUser();
+    const user = await requireUser();
     const { searchParams } = new URL(req.url);
 
     // Para decano/coordinador la facultad siempre es la propia (no se puede

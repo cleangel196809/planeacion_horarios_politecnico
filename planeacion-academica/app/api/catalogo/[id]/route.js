@@ -10,8 +10,8 @@ const CAMPOS_EDITABLES = ["facultad", "programa", "plan", "ciclo", "jornada", "s
 
 async function PATCH(req, { params }) {
   try {
-    const user = requireEditor();
-    const id = params.id;
+    const user = await requireEditor();
+    const { id } = await params;
 
     const { rows } = await query("SELECT * FROM catalogo WHERE id = $1", [id]);
     const item = rows[0];

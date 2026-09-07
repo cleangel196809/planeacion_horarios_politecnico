@@ -5,7 +5,7 @@ const { jsonError, ok } = require("@/lib/apiHelpers");
 
 async function POST(req) {
   try {
-    const user = requireUser();
+    const user = await requireUser();
     const { passwordActual, passwordNueva } = await req.json();
     if (!passwordActual || !passwordNueva || passwordNueva.length < 6) {
       const err = new Error("La nueva contraseña debe tener al menos 6 caracteres.");

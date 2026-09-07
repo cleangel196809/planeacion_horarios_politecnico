@@ -9,7 +9,7 @@ const { jsonError } = require("@/lib/apiHelpers");
 // contraseña cifrada) y de todas las facultades.
 async function GET() {
   try {
-    requireAdmin();
+    await requireAdmin();
     const { sql } = await generarBackupSQL();
     const buffer = Buffer.from(sql, "utf-8");
     const fecha = new Date().toISOString().slice(0, 10);

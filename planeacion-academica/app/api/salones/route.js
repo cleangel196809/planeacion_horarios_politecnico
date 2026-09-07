@@ -4,7 +4,7 @@ const { jsonError, ok } = require("@/lib/apiHelpers");
 
 async function GET(req) {
   try {
-    requireUser();
+    await requireUser();
     const { searchParams } = new URL(req.url);
     const sede = searchParams.get("sede");
     if (!sede) return ok({ salones: [] });

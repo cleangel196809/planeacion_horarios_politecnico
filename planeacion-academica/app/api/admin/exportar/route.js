@@ -5,7 +5,7 @@ const { jsonError } = require("@/lib/apiHelpers");
 
 async function GET(req) {
   try {
-    requireAdmin();
+    await requireAdmin();
     const { searchParams } = new URL(req.url);
     const periodo = searchParams.get("periodo");
     if (!periodo) {

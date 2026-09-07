@@ -21,7 +21,7 @@ const { jsonError, ok } = require("@/lib/apiHelpers");
 //   cada tabla.
 async function DELETE(req) {
   try {
-    requireAdmin();
+    await requireAdmin();
     const body = await req.json();
     const periodo = String(body.periodo || "").trim();
     const confirmacion = String(body.confirmacion || "").trim();

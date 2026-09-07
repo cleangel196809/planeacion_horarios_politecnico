@@ -7,7 +7,7 @@ const { jsonError, ok } = require("@/lib/apiHelpers");
 // formularios normales).
 async function GET() {
   try {
-    requireStaff();
+    await requireStaff();
     const { rows } = await query("SELECT id, nombre, activa FROM sedes ORDER BY nombre");
     return ok({ sedes: rows });
   } catch (err) {
@@ -20,7 +20,7 @@ async function GET() {
 // queda disponible de inmediato en los selectores de sede.
 async function POST(req) {
   try {
-    requireStaff();
+    await requireStaff();
     const body = await req.json();
     const nombre = String(body.nombre || "").trim().toUpperCase();
     if (!nombre) {
@@ -45,7 +45,7 @@ async function POST(req) {
 // de aparecer como opción para elegir en formularios nuevos).
 async function PATCH(req) {
   try {
-    requireStaff();
+    await requireStaff();
     const body = await req.json();
     if (!body.id) {
       const err = new Error("Se requiere id.");

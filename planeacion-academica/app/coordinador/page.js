@@ -2,8 +2,8 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
 import CoordinadorApp from "@/components/CoordinadorApp";
 
-export default function CoordinadorPage() {
-  const user = getCurrentUser();
+export default async function CoordinadorPage() {
+  const user = await getCurrentUser();
   if (!user) redirect("/login");
   if (user.rol === "admin") redirect("/admin");
   if (user.rol === "decano") redirect("/decano");

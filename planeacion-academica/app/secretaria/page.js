@@ -2,8 +2,8 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
 import SecretariaApp from "@/components/SecretariaApp";
 
-export default function SecretariaPage() {
-  const user = getCurrentUser();
+export default async function SecretariaPage() {
+  const user = await getCurrentUser();
   if (!user) redirect("/login");
   if (user.rol === "admin") redirect("/admin");
   if (user.rol === "coordinador") redirect("/coordinador");

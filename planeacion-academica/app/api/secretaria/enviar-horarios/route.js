@@ -177,7 +177,7 @@ async function enviarAEstudiantes(periodo, facultad) {
 
 async function POST(req) {
   try {
-    requireStaff();
+    await requireStaff();
     const body = await req.json();
     const periodo = body.periodo;
     const facultad = body.facultad || null;

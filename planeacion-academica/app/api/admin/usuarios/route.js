@@ -5,7 +5,7 @@ const { jsonError, ok } = require("@/lib/apiHelpers");
 
 async function GET() {
   try {
-    requireAdmin();
+    await requireAdmin();
     const { rows } = await query(
       `SELECT id, username, nombre, rol, facultad, email, activo, debe_cambiar_password, created_at
        FROM usuarios ORDER BY rol, facultad NULLS FIRST, nombre`
@@ -23,7 +23,7 @@ const ROLES_SIN_FACULTAD = ["secretaria_academica"];
 
 async function POST(req) {
   try {
-    requireAdmin();
+    await requireAdmin();
     const { username, nombre, facultad, password, email, rol } = await req.json();
 
     // Solo el admin puede crear decano, coordinador o secretaría académica
@@ -78,7 +78,7 @@ async function POST(req) {
 
 async function PATCH(req) {
   try {
-    requireAdmin();
+    await requireAdmin();
     const body = await req.json();
     const { id } = body;
     if (!id) {

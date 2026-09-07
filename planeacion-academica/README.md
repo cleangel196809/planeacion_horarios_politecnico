@@ -212,15 +212,27 @@ cero, no necesitas este paso — ya está incluido en `db/schema.sql`.
 
 ## 7. Notas y limitaciones conocidas
 
-- `npm audit` reporta vulnerabilidades en dos dependencias transitivas:
-  `postcss` (usado internamente por Next.js en tiempo de compilación, no en
-  producción) y `uuid` (usado internamente por ExcelJS). Corregirlas de
-  raíz implica subir a Next.js 15 o a ExcelJS 5 — cambios mayores que
-  preferí no meter en este mismo paquete sin volver a probar todo el flujo
-  contigo. `nodemailer`, que sí es nuevo en esta versión, se dejó en su
-  última versión estable y sin vulnerabilidades conocidas. Si quieres que
-  aborde la actualización de Next.js/ExcelJS como una tarea aparte
-  (con su propia ronda de pruebas), lo hacemos con gusto.
+- **(2026-09-07) `npm audit` en 0 vulnerabilidades.** El proyecto se subió
+  de Next.js 14 a **Next.js 15.5.25** (la línea de mantenimiento con parches
+  de seguridad activos — Next 14 dejó de recibir parches en oct/2025) y
+  React 18 a **React 19**, siguiendo la guía oficial de Next.js: `cookies()`
+  y los `params` de rutas dinámicas (`/api/.../[id]/route.js`) ahora son
+  asíncronos (`await cookies()`, `await params`), y las páginas que leen la
+  sesión (`app/page.js`, `/admin`, `/decano`, `/secretaria`, `/coordinador`)
+  pasaron a ser Server Components `async`. `next.config.js` también se
+  actualizó (`experimental.serverComponentsExternalPackages` →
+  `serverExternalPackages`, estable en Next 15). ExcelJS se quedó en 4.4.0
+  (no existe una versión 5 publicada) pero su dependencia vulnerable `uuid`
+  se fija a `^11.1.1` vía el campo `overrides` del `package.json` — igual
+  se hizo con el `postcss` interno de Next (`overrides.next.postcss`),
+  porque Next.js sigue empaquetando internamente una versión vieja.
+  Verificado con `npm run build` + `npm start` (páginas cargan, sesión sin
+  cookie responde bien) y una prueba puntual de que ExcelJS sigue generando
+  archivos `.xlsx` correctamente con el `uuid` nuevo, antes de subir este
+  cambio. **Nota:** el soporte de seguridad de la línea 15.x de Next.js
+  termina alrededor del 21 de octubre de 2026 — después de esa fecha habrá
+  que migrar a Next 16 (cambios adicionales: `middleware.js`→`proxy.js`,
+  Turbopack por defecto, valores por defecto nuevos de `next/image`).
 - Este proyecto fue probado de punta a punta (login, carga de catálogo,
   creación/edición/eliminación de grupos, permisos por facultad, cambio de
   contraseña obligatorio, recuperación de contraseña por correo —incluido

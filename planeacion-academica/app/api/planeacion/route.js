@@ -20,7 +20,7 @@ async function attachHorarios(rows) {
 
 async function GET(req) {
   try {
-    const user = requireUser();
+    const user = await requireUser();
     const { searchParams } = new URL(req.url);
     const periodo = searchParams.get("periodo");
     const catalogoId = searchParams.get("catalogo_id");
@@ -73,7 +73,7 @@ function validarHorarios(horarios) {
 
 async function POST(req) {
   try {
-    const user = requireEditor();
+    const user = await requireEditor();
     const body = await req.json();
     const {
       catalogo_id,
