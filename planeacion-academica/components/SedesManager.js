@@ -85,7 +85,7 @@ export default function SedesManager() {
       {error && <p className="text-sm text-red-600 mb-3">{error}</p>}
 
       <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="table-sap">
           <thead>
             <tr className="text-left text-gray-500 border-b">
               <th className="py-1 pr-3">Sede</th>

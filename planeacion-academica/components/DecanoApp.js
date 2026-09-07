@@ -5,10 +5,16 @@ import TopBar from "@/components/TopBar";
 import CambiarPasswordModal from "@/components/CambiarPasswordModal";
 import GrupoForm from "@/components/GrupoForm";
 import EstadoBadge from "@/components/EstadoBadge";
-import NuevoFormularioWizard from "@/components/NuevoFormularioWizard";
 import ConfirmarCatalogoReal from "@/components/ConfirmarCatalogoReal";
 import { SEDES, JORNADAS, DIAS } from "@/lib/constants";
-import { IconPlus, IconDownload, IconEdit, IconTrash } from "@/components/Icons";
+import {
+  IconPlus,
+  IconDownload,
+  IconEdit,
+  IconTrash,
+  IconX,
+  IconChevronRight
+} from "@/components/Icons";
 
 function labelSede(v) {
   return SEDES.find((s) => s.value === v)?.label || v || "—";
@@ -20,10 +26,19 @@ function labelDia(v) {
   return DIAS.find((d) => d.value === v)?.corto || v;
 }
 
-// facultadOverride: solo la usa el administrador cuando entra a "actuar
-// como decano" de una facultad puntual (ver AdminApp). Un decano normal
-// nunca la recibe: su facultad ya viene fija en su sesión y el backend la
-// aplica solo, así que aquí basta con no mandar nada distinto.
+// Panel del decano: TODO pasa en una sola pantalla (filtro -> tabla de
+// materias del ciclo -> panel lateral con el detalle y el formulario de
+// grupo/horario), sin un asistente modal aparte. Antes existia un boton
+// "Nuevo formulario" que abria components/NuevoFormularioWizard.js con su
+// propio selector de programa/plan/periodo y un formulario en cascada de
+// ~1000 lineas (components/ProgramacionCicloForm.js) que repetia casi todo
+// lo que ya hacia esta vista; se retiraron ambos archivos y su unica logica
+// util (la deteccion de cruces de horario) se movio a lib/conflictos.js,
+// que ahora usa GrupoForm en cualquiera de los dos flujos (crear o editar).
+//
+// facultadOverride: solo la usa el administrador/secretaria cuando entran a
+// "actuar como decano" de una facultad puntual (ver AdminApp/SecretariaApp).
+// Un decano normal nunca la recibe: su facultad ya viene fija en su sesion.
 export default function DecanoApp({ user, facultadOverride, titulo }) {
   const [mostrarCambiarPassword, setMostrarCambiarPassword] = useState(
     user.debeCambiarPassword
@@ -37,10 +52,13 @@ export default function DecanoApp({ user, facultadOverride, titulo }) {
   const [error, setError] = useState("");
   const [busqueda, setBusqueda] = useState("");
   const [cicloSeleccionado, setCicloSeleccionado] = useState("");
-  const [formularioAbiertoPara, setFormularioAbiertoPara] = useState(null); // catalogo_id
-  const [editando, setEditando] = useState(null); // planeacion row
-  const [mostrarWizard, setMostrarWizard] = useState(false);
 
+  // Panel lateral (drawer) con el detalle de una materia: null = cerrado.
+  const [materiaPanel, setMateriaPanel] = useState(null); // catalogo item
+  const [agregando, setAgregando] = useState(false);
+  const [editandoGrupo, setEditandoGrupo] = useState(null); // planeacion row
+
+  const facultad = facultadOverride || user.facultad;
   const qsFacultad = facultadOverride ? `&facultad=${encodeURIComponent(facultadOverride)}` : "";
 
   useEffect(() => {
@@ -51,8 +69,6 @@ export default function DecanoApp({ user, facultadOverride, titulo }) {
         const lista = d.periodos || [];
         setPeriodos(lista);
         if (lista.length === 0) return;
-        // Recuerda el último período que se vio en este navegador para esta
-        // facultad, en vez de siempre caer al primero de la lista.
         let recordado = null;
         try {
           recordado = window.localStorage.getItem(storageKey);
@@ -105,9 +121,9 @@ export default function DecanoApp({ user, facultadOverride, titulo }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [periodo]);
 
-  // Ciclos de formación presentes en el catálogo del período (con la cuenta
+  // Ciclos de formacion presentes en el catalogo del periodo (con la cuenta
   // de materias de cada uno), para que el decano elija uno y solo se vean
-  // las materias de ese ciclo — el resto de la lista queda oculta.
+  // las materias de ese ciclo -- el resto de la lista queda oculta.
   const ciclos = useMemo(() => {
     const map = new Map();
     for (const item of catalogo) {
@@ -138,8 +154,8 @@ export default function DecanoApp({ user, facultadOverride, titulo }) {
   }, [materiasDelCiclo, busqueda]);
 
   // Filas que llegaron del archivo real de carreras y materias (traen su
-  // propio GRUPO) y que todavía no tienen ningún grupo de planeación creado:
-  // están pendientes de que el decano las revise y confirme.
+  // propio GRUPO) y que todavia no tienen ningun grupo de planeacion creado:
+  // estan pendientes de que el decano las revise y confirme.
   const pendientesConfirmar = useMemo(
     () =>
       catalogoFiltrado.filter(
@@ -147,6 +163,36 @@ export default function DecanoApp({ user, facultadOverride, titulo }) {
       ),
     [catalogoFiltrado, planeacionPorCatalogo]
   );
+
+  const catalogoPorId = useMemo(() => {
+    const map = {};
+    for (const c of catalogo) map[c.id] = c;
+    return map;
+  }, [catalogo]);
+
+  // Todos los grupos ya guardados en el periodo (de cualquier materia),
+  // enriquecidos con el nombre de su asignatura, para que
+  // lib/conflictos.js pueda avisar de cruces de docente/salon sin importar
+  // a que materia pertenezcan.
+  const todosLosGrupos = useMemo(() => {
+    const todos = Object.values(planeacionPorCatalogo).flat();
+    return todos.map((g) => ({
+      ...g,
+      catalogo_asignatura: catalogoPorId[g.catalogo_id]?.asignatura
+    }));
+  }, [planeacionPorCatalogo, catalogoPorId]);
+
+  function abrirPanel(item) {
+    setMateriaPanel(item);
+    setAgregando(false);
+    setEditandoGrupo(null);
+  }
+
+  function cerrarPanel() {
+    setMateriaPanel(null);
+    setAgregando(false);
+    setEditandoGrupo(null);
+  }
 
   async function crearGrupo(catalogoId, valores) {
     const res = await fetch("/api/planeacion", {
@@ -156,7 +202,7 @@ export default function DecanoApp({ user, facultadOverride, titulo }) {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
-    setFormularioAbiertoPara(null);
+    setAgregando(false);
     await cargarDatos(periodo);
   }
 
@@ -168,56 +214,43 @@ export default function DecanoApp({ user, facultadOverride, titulo }) {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
-    setEditando(null);
+    setEditandoGrupo(null);
     await cargarDatos(periodo);
   }
 
   async function eliminarGrupo(id) {
-    if (!confirm("¿Eliminar este grupo? Esta acción no se puede deshacer.")) return;
+    if (!confirm("¿Eliminar este grupo? Esta accion no se puede deshacer.")) return;
     const res = await fetch(`/api/planeacion/${id}`, { method: "DELETE" });
     if (res.ok) await cargarDatos(periodo);
   }
+
+  // El panel lateral muestra siempre el item de catalogo mas reciente (por
+  // si sus grupos cambiaron tras crear/editar/eliminar), buscandolo por id
+  // en vez de quedarse con la referencia vieja.
+  const materiaPanelActual = materiaPanel ? catalogoPorId[materiaPanel.id] || materiaPanel : null;
+  const gruposDelPanel = materiaPanelActual ? planeacionPorCatalogo[materiaPanelActual.id] || [] : [];
 
   return (
     <div className="min-h-screen">
       {mostrarCambiarPassword && (
         <CambiarPasswordModal onDone={() => setMostrarCambiarPassword(false)} />
       )}
-      {mostrarWizard && (
-        <NuevoFormularioWizard
-          periodos={periodos}
-          facultadOverride={facultadOverride}
-          onClose={() => setMostrarWizard(false)}
-          onCreated={(periodoUsado) => {
-            if (periodoUsado && periodoUsado !== periodo) {
-              setPeriodo(periodoUsado); // el useEffect de [periodo] recarga los datos
-            } else {
-              cargarDatos(periodo);
-            }
-          }}
-        />
-      )}
 
       <TopBar user={user} titulo={titulo || "Mi planeación"}>
         {periodo && (
-          <>
-            <button className="btn-primary" onClick={() => setMostrarWizard(true)}>
-              <IconPlus /> Nuevo formulario
-            </button>
-            <a
-              href={`/api/planeacion/exportar?periodo=${encodeURIComponent(periodo)}${qsFacultad}`}
-              className="btn-secondary"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <IconDownload /> Descargar {facultadOverride ? "el" : "mi"} Excel
-            </a>
-          </>
+          <a
+            href={`/api/planeacion/exportar?periodo=${encodeURIComponent(periodo)}${qsFacultad}`}
+            className="btn-secondary"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <IconDownload /> Descargar {facultadOverride ? "el" : "mi"} Excel
+          </a>
         )}
       </TopBar>
 
-      <main className="max-w-6xl mx-auto px-4 py-6 space-y-4">
-        <div className="flex flex-wrap items-end gap-3">
+      <div className="filter-bar">
+        <div className="filter-bar-row">
           <div>
             <label className="label">Período</label>
             <select className="input" value={periodo} onChange={(e) => setPeriodo(e.target.value)}>
@@ -229,34 +262,40 @@ export default function DecanoApp({ user, facultadOverride, titulo }) {
               ))}
             </select>
           </div>
-          <div>
+
+          <div className="flex-1 min-w-[260px]">
             <label className="label">Ciclo de formación</label>
-            <select
-              className="input"
-              value={cicloSeleccionado}
-              onChange={(e) => setCicloSeleccionado(e.target.value)}
-            >
-              <option value="">Selecciona un ciclo...</option>
+            <div className="tab-strip">
+              {ciclos.length === 0 && <p className="text-sm text-gray-400">Sin ciclos aún.</p>}
               {ciclos.map((c) => (
-                <option key={c.ciclo} value={c.ciclo}>
-                  {c.ciclo === "Sin ciclo" ? "Sin ciclo" : `Ciclo ${c.ciclo}`} ({c.materias})
-                </option>
+                <button
+                  key={c.ciclo}
+                  type="button"
+                  className={`tab-btn ${cicloSeleccionado === c.ciclo ? "tab-btn-active" : ""}`}
+                  onClick={() => setCicloSeleccionado(cicloSeleccionado === c.ciclo ? "" : c.ciclo)}
+                >
+                  {c.ciclo === "Sin ciclo" ? "Sin ciclo" : `Ciclo ${c.ciclo}`}
+                  <span className="tab-count">{c.materias}</span>
+                </button>
               ))}
-            </select>
+            </div>
           </div>
+
           {cicloSeleccionado && (
-            <div className="flex-1 min-w-[200px]">
+            <div className="min-w-[220px]">
               <label className="label">Buscar asignatura</label>
               <input
                 className="input"
-                placeholder="Nombre de la asignatura, programa o plan..."
+                placeholder="Nombre, programa o plan..."
                 value={busqueda}
                 onChange={(e) => setBusqueda(e.target.value)}
               />
             </div>
           )}
         </div>
+      </div>
 
+      <main className="max-w-6xl mx-auto px-4 py-6 space-y-4">
         {error && (
           <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
             {error}
@@ -264,7 +303,7 @@ export default function DecanoApp({ user, facultadOverride, titulo }) {
         )}
 
         {!cargando && periodos.length === 0 && (
-          <div className="card text-center text-gray-500">
+          <div className="empty-state">
             {facultadOverride
               ? `Todavía no hay catálogo cargado para ${facultadOverride} en ningún período.`
               : "Todavía no hay un catálogo cargado para ningún período. Pide al administrador que cargue el Excel base de tu facultad para el próximo ciclo."}
@@ -274,7 +313,7 @@ export default function DecanoApp({ user, facultadOverride, titulo }) {
         {cargando && <p className="text-sm text-gray-500">Cargando...</p>}
 
         {!cargando && periodos.length > 0 && !cicloSeleccionado && (
-          <div className="card text-center text-gray-500">
+          <div className="empty-state">
             Selecciona un ciclo de formación arriba para ver sus materias.
           </div>
         )}
@@ -287,101 +326,161 @@ export default function DecanoApp({ user, facultadOverride, titulo }) {
           />
         )}
 
-        <div className="space-y-3">
-          {catalogoFiltrado.map((item) => {
-            const grupos = planeacionPorCatalogo[item.id] || [];
-            return (
-              <div key={item.id} className="card">
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div>
-                    <h3 className="font-semibold text-gray-900">{item.asignatura}</h3>
-                    <p className="text-xs text-gray-500">
-                      {item.programa} · Plan {item.plan} · Ciclo {item.ciclo} · {item.creditos} créditos
-                    </p>
-                  </div>
-                  <button
-                    className="btn-primary"
-                    onClick={() =>
-                      setFormularioAbiertoPara(formularioAbiertoPara === item.id ? null : item.id)
-                    }
-                  >
-                    <IconPlus /> Agregar grupo
-                  </button>
-                </div>
+        {cicloSeleccionado && catalogoFiltrado.length > 0 && (
+          <div className="table-sap-wrap">
+            <table className="table-sap">
+              <thead>
+                <tr>
+                  <th>Asignatura</th>
+                  <th>Programa · Plan</th>
+                  <th>Créditos</th>
+                  <th>Grupos</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {catalogoFiltrado.map((item) => {
+                  const grupos = planeacionPorCatalogo[item.id] || [];
+                  return (
+                    <tr key={item.id} role="button" onClick={() => abrirPanel(item)}>
+                      <td className="font-medium text-gray-900">{item.asignatura}</td>
+                      <td className="text-gray-500">
+                        {item.programa} · {item.plan || "—"}
+                      </td>
+                      <td className="text-gray-500">{item.creditos ?? "—"}</td>
+                      <td>
+                        {grupos.length === 0 ? (
+                          <span className="badge bg-amber-100 text-amber-700">Sin grupos</span>
+                        ) : (
+                          <span className="badge bg-gray-100 text-gray-600">
+                            {grupos.length} grupo{grupos.length === 1 ? "" : "s"}
+                          </span>
+                        )}
+                      </td>
+                      <td className="text-right">
+                        <span className="inline-flex items-center gap-1 text-brand-600 text-xs font-medium">
+                          Programar <IconChevronRight className="w-3.5 h-3.5" />
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
 
-                {grupos.length > 0 && (
-                  <div className="mt-3 overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="text-left text-gray-500 border-b">
-                          <th className="py-1 pr-3">Grupo</th>
-                          <th className="py-1 pr-3">Sede</th>
-                          <th className="py-1 pr-3">Jornada</th>
-                          <th className="py-1 pr-3">Días</th>
-                          <th className="py-1 pr-3">Docente</th>
-                          <th className="py-1 pr-3">Estado</th>
-                          <th className="py-1 pr-3"></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {grupos.map((g) => (
-                          <tr key={g.id} className="border-b last:border-0">
-                            <td className="py-1.5 pr-3">{g.grupo || "—"}</td>
-                            <td className="py-1.5 pr-3">{labelSede(g.modalidad)}</td>
-                            <td className="py-1.5 pr-3">{labelJornada(g.jornada)}</td>
-                            <td className="py-1.5 pr-3">
-                              {(g.horarios || []).map((h) => labelDia(h.dia)).join(", ") || "—"}
-                            </td>
-                            <td className="py-1.5 pr-3">{g.nombre_docente || "—"}</td>
-                            <td className="py-1.5 pr-3">
-                              <EstadoBadge estado={g.estado} />
-                            </td>
-                            <td className="py-1.5 pr-3 text-right whitespace-nowrap">
-                              <button
-                                className="inline-flex items-center gap-1 text-brand-600 text-xs font-medium mr-3"
-                                onClick={() => setEditando(g)}
-                              >
-                                <IconEdit className="w-3.5 h-3.5" /> Editar
-                              </button>
-                              <button
-                                className="inline-flex items-center gap-1 text-red-600 text-xs font-medium"
-                                onClick={() => eliminarGrupo(g.id)}
-                              >
-                                <IconTrash className="w-3.5 h-3.5" /> Eliminar
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-
-                {formularioAbiertoPara === item.id && (
-                  <div className="mt-3">
-                    <GrupoForm
-                      facultad={facultadOverride || user.facultad}
-                      onCancel={() => setFormularioAbiertoPara(null)}
-                      onSubmit={(valores) => crearGrupo(item.id, valores)}
-                    />
-                  </div>
-                )}
-
-                {editando && editando.catalogo_id === item.id && (
-                  <div className="mt-3">
-                    <GrupoForm
-                      facultad={facultadOverride || user.facultad}
-                      initial={editando}
-                      onCancel={() => setEditando(null)}
-                      onSubmit={(valores) => actualizarGrupo(editando.id, valores)}
-                    />
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+        {cicloSeleccionado && !cargando && catalogoFiltrado.length === 0 && (
+          <div className="empty-state">Ninguna asignatura coincide con la búsqueda.</div>
+        )}
       </main>
+
+      {materiaPanelActual && (
+        <div className="overlay-drawer">
+          <div className="overlay-drawer-backdrop" onClick={cerrarPanel} />
+          <div className="drawer-panel">
+            <div className="drawer-header">
+              <div className="min-w-0">
+                <p className="kicker mb-1">
+                  {materiaPanelActual.programa} · Plan {materiaPanelActual.plan || "—"} · Ciclo{" "}
+                  {materiaPanelActual.ciclo || "—"}
+                </p>
+                <h2 className="font-semibold text-gray-900 leading-tight">
+                  {materiaPanelActual.asignatura}
+                </h2>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {materiaPanelActual.creditos ?? "—"} créditos
+                </p>
+              </div>
+              <button className="btn-icon" onClick={cerrarPanel}>
+                <IconX className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="drawer-body">
+              {gruposDelPanel.length > 0 && (
+                <div className="table-sap-wrap">
+                  <table className="table-sap">
+                    <thead>
+                      <tr>
+                        <th>Grupo</th>
+                        <th>Sede</th>
+                        <th>Jornada</th>
+                        <th>Días</th>
+                        <th>Docente</th>
+                        <th>Estado</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {gruposDelPanel.map((g) => (
+                        <tr key={g.id}>
+                          <td>{g.grupo || "—"}</td>
+                          <td>{labelSede(g.modalidad)}</td>
+                          <td>{labelJornada(g.jornada)}</td>
+                          <td>{(g.horarios || []).map((h) => labelDia(h.dia)).join(", ") || "—"}</td>
+                          <td>{g.nombre_docente || "—"}</td>
+                          <td>
+                            <EstadoBadge estado={g.estado} />
+                          </td>
+                          <td className="text-right whitespace-nowrap">
+                            <button
+                              className="inline-flex items-center gap-1 text-brand-600 text-xs font-medium mr-3"
+                              onClick={() => {
+                                setAgregando(false);
+                                setEditandoGrupo(g);
+                              }}
+                            >
+                              <IconEdit className="w-3.5 h-3.5" /> Editar
+                            </button>
+                            <button
+                              className="inline-flex items-center gap-1 text-red-600 text-xs font-medium"
+                              onClick={() => eliminarGrupo(g.id)}
+                            >
+                              <IconTrash className="w-3.5 h-3.5" /> Eliminar
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {!agregando && !editandoGrupo && (
+                <button
+                  className="btn-primary"
+                  onClick={() => {
+                    setEditandoGrupo(null);
+                    setAgregando(true);
+                  }}
+                >
+                  <IconPlus /> Agregar grupo (sede, jornada y horario)
+                </button>
+              )}
+
+              {agregando && (
+                <GrupoForm
+                  facultad={facultad}
+                  todosLosGrupos={todosLosGrupos}
+                  onCancel={() => setAgregando(false)}
+                  onSubmit={(valores) => crearGrupo(materiaPanelActual.id, valores)}
+                />
+              )}
+
+              {editandoGrupo && (
+                <GrupoForm
+                  facultad={facultad}
+                  initial={editandoGrupo}
+                  todosLosGrupos={todosLosGrupos}
+                  onCancel={() => setEditandoGrupo(null)}
+                  onSubmit={(valores) => actualizarGrupo(editandoGrupo.id, valores)}
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

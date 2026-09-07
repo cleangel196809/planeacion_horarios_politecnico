@@ -313,7 +313,7 @@ export default function SalonesManager() {
       </div>
 
       <div className="overflow-x-auto max-h-96 overflow-y-auto">
-        <table className="w-full text-sm">
+        <table className="table-sap">
           <thead>
             <tr className="text-left text-gray-500 border-b">
               <th className="py-1 pr-3">Sede</th>

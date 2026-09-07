@@ -146,7 +146,7 @@ export default function ConfirmarCatalogoReal({ items, periodo, onConfirmado }) 
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="table-sap">
           <thead>
             <tr className="text-left text-gray-500 border-b">
               <th className="py-1 pr-2"></th>

@@ -51,3 +51,113 @@ body {
 .badge {
   @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium;
 }
+
+/* ==========================================================================
+   Sistema visual "SAP" (Fiori-like): filtros, tablas densas, tabs y panel
+   lateral. Se suma a las clases de arriba (card, btn-*, input, label) sin
+   reemplazarlas — el objetivo es que las pantallas de lista (decano,
+   coordinador, secretaría) se vean como una lista/objeto de SAP: encabezado
+   fijo con filtros, tabla compacta con cabecera pegajosa, y el detalle de un
+   registro en un panel lateral en vez de un modal aparte o un acordeón que
+   empuja toda la página hacia abajo.
+   ========================================================================== */
+
+.filter-bar {
+  position: sticky;
+  top: 57px; /* alto aproximado del TopBar; evita valores arbitrarios de Tailwind en @apply */
+  @apply z-10 bg-white border-b border-gray-200 px-4 py-3;
+}
+
+.filter-bar-row {
+  @apply max-w-6xl mx-auto flex flex-wrap items-end gap-3;
+}
+
+.kicker {
+  font-size: 11px;
+  @apply font-semibold text-gray-400 tracking-wide uppercase;
+}
+
+/* Tabs tipo SAP (ciclo, sede, etc.): fila de píldoras, la activa resaltada
+   con el color de marca y un borde inferior sólido. */
+.tab-strip {
+  @apply flex flex-wrap gap-1.5;
+}
+
+.tab-btn {
+  @apply inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium border border-transparent text-gray-600 hover:bg-gray-100 transition;
+}
+
+.tab-btn-active {
+  @apply bg-brand-50 text-brand-700 border-brand-200;
+}
+
+.tab-btn .tab-count {
+  font-size: 11px;
+  @apply px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500;
+}
+
+.tab-btn-active .tab-count {
+  @apply bg-brand-100 text-brand-700;
+}
+
+/* Tabla densa de "reporte de lista": cabecera pegajosa, franjas suaves,
+   resalte de fila al pasar el mouse, filas clicables cuando llevan
+   role="button" (materia, resultado de búsqueda, etc.). */
+.table-sap {
+  @apply w-full text-sm border-collapse;
+}
+
+.table-sap thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  font-size: 11px;
+  @apply bg-gray-50 text-left font-semibold text-gray-500 uppercase tracking-wide px-3 py-2 border-b border-gray-200 whitespace-nowrap;
+}
+
+.table-sap tbody td {
+  @apply px-3 py-2 border-b border-gray-100 align-top;
+}
+
+.table-sap tbody tr:hover {
+  @apply bg-brand-50/40;
+}
+
+.table-sap tbody tr[role="button"] {
+  @apply cursor-pointer;
+}
+
+.table-sap-wrap {
+  @apply overflow-x-auto rounded-lg border border-gray-200;
+}
+
+/* Panel lateral (drawer): reemplaza al modal grande para el detalle de un
+   registro (materia del decano, envío masivo, etc.). Se desliza desde la
+   derecha y ocupa el ancho justo para no perder el contexto de la lista. */
+.overlay-drawer {
+  @apply fixed inset-0 z-50 flex justify-end;
+}
+
+.overlay-drawer-backdrop {
+  @apply absolute inset-0 bg-black/30;
+}
+
+.drawer-panel {
+  @apply relative h-full w-full sm:w-[560px] bg-white shadow-2xl overflow-y-auto border-l border-gray-200;
+}
+
+.drawer-header {
+  @apply sticky top-0 z-10 bg-white border-b border-gray-200 px-5 py-4 flex items-start justify-between gap-3;
+}
+
+.drawer-body {
+  @apply p-5 space-y-4;
+}
+
+.empty-state {
+  @apply text-center text-gray-500 text-sm border border-dashed border-gray-300 rounded-lg py-8 px-4;
+}
+
+.btn-icon {
+  @apply inline-flex items-center justify-center rounded-md w-7 h-7 text-gray-400 hover:text-brand-700 hover:bg-brand-50 transition;
+}

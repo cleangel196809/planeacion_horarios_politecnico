@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { JORNADAS, ESTADOS, DIAS } from "@/lib/constants";
 import { useSedes } from "@/lib/useSedes";
+import { detectarConflictosHorario } from "@/lib/conflictos";
 import { IconX, IconSave } from "@/components/Icons";
 
 const HORARIO_VACIO = { hora_inicio: "", hora_fin: "", salon: "" };
@@ -15,7 +16,7 @@ function horariosArrayToMap(horarios) {
   return map;
 }
 
-export default function GrupoForm({ facultad, initial, onCancel, onSubmit }) {
+export default function GrupoForm({ facultad, initial, todosLosGrupos, onCancel, onSubmit }) {
   const isEdit = Boolean(initial?.id);
   const SEDES = useSedes();
 
@@ -172,6 +173,20 @@ export default function GrupoForm({ facultad, initial, onCancel, onSubmit }) {
       dia,
       ...(horariosPorDia[dia] || HORARIO_VACIO)
     }));
+    // Antes de guardar, verifica que el docente y los salones elegidos no
+    // queden cruzados con horarios de OTROS grupos ya guardados en el
+    // periodo (de cualquier materia de la facultad). Si hay un cruce, se
+    // bloquea el guardado y se muestra el detalle para que se corrija.
+    const conflictos = detectarConflictosHorario(
+      { documentoDocente, horarios },
+      todosLosGrupos || [],
+      initial?.id ?? null
+    );
+    if (conflictos.length > 0) {
+      const extra = conflictos.length > 1 ? ` (y ${conflictos.length - 1} mas)` : "";
+      setError(`Hay horarios cruzados sin resolver: ${conflictos[0]}${extra}`);
+      return;
+    }
 
     setGuardando(true);
     try {

@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import TopBar from "@/components/TopBar";
 import CambiarPasswordModal from "@/components/CambiarPasswordModal";
 import EstadoBadge from "@/components/EstadoBadge";
-import { IconDownload } from "@/components/Icons";
+import { IconDownload, IconSearch, IconX } from "@/components/Icons";
 import { SEDES, JORNADAS, DIAS } from "@/lib/constants";
 
 function labelSede(v) {
@@ -17,9 +17,15 @@ function labelDia(v) {
   return DIAS.find((d) => d.value === v)?.corto || v;
 }
 
-// Vista de solo consulta para el rol "coordinador": ve exactamente los mismos
-// datos que el decano de su facultad (catálogo, grupos creados, estado y
-// horario), pero sin ningún botón para crear, editar ni eliminar nada.
+const FILTROS_VACIOS = { cedulaDocente: "", cedulaEstudiante: "", grupo: "", materia: "" };
+
+// Vista de solo consulta para el rol "coordinador": ve los mismos datos que
+// el decano de su facultad (catalogo, grupos creados, estado y horario),
+// sin ningun boton para crear, editar ni eliminar nada. Ademas de recorrer
+// el catalogo completo (como antes), puede buscar puntualmente por cedula
+// de un docente, cedula de un estudiante, numero de grupo o nombre de
+// materia -- las cuatro formas de busqueda que la coordinacion usa a diario
+// -- contra /api/coordinador/consulta.
 export default function CoordinadorApp({ user }) {
   const [mostrarCambiarPassword, setMostrarCambiarPassword] = useState(
     user.debeCambiarPassword
@@ -27,11 +33,10 @@ export default function CoordinadorApp({ user }) {
   const storageKey = `planeacion_periodo_coordinador_${user.facultad || "propio"}`;
   const [periodos, setPeriodos] = useState([]);
   const [periodo, setPeriodo] = useState("");
-  const [catalogo, setCatalogo] = useState([]);
-  const [planeacionPorCatalogo, setPlaneacionPorCatalogo] = useState({});
+  const [filtros, setFiltros] = useState(FILTROS_VACIOS);
+  const [resultado, setResultado] = useState({ tipo: "todos", filas: [] });
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState("");
-  const [busqueda, setBusqueda] = useState("");
 
   useEffect(() => {
     fetch("/api/periodos")
@@ -51,27 +56,22 @@ export default function CoordinadorApp({ user }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function cargarDatos(p) {
-    if (!p) return;
+  async function buscar(filtrosActuales) {
+    if (!periodo) return;
     setCargando(true);
     setError("");
     try {
-      const [catRes, planRes] = await Promise.all([
-        fetch(`/api/catalogo?periodo=${encodeURIComponent(p)}`),
-        fetch(`/api/planeacion?periodo=${encodeURIComponent(p)}`)
-      ]);
-      const catData = await catRes.json();
-      const planData = await planRes.json();
-      if (!catRes.ok) throw new Error(catData.error);
-      if (!planRes.ok) throw new Error(planData.error);
+      const params = new URLSearchParams({ periodo });
+      if (filtrosActuales.cedulaDocente.trim()) params.set("cedula_docente", filtrosActuales.cedulaDocente.trim());
+      if (filtrosActuales.cedulaEstudiante.trim())
+        params.set("cedula_estudiante", filtrosActuales.cedulaEstudiante.trim());
+      if (filtrosActuales.grupo.trim()) params.set("grupo", filtrosActuales.grupo.trim());
+      if (filtrosActuales.materia.trim()) params.set("materia", filtrosActuales.materia.trim());
 
-      setCatalogo(catData.catalogo || []);
-      const agrupado = {};
-      for (const p of planData.planeacion || []) {
-        agrupado[p.catalogo_id] = agrupado[p.catalogo_id] || [];
-        agrupado[p.catalogo_id].push(p);
-      }
-      setPlaneacionPorCatalogo(agrupado);
+      const res = await fetch(`/api/coordinador/consulta?${params.toString()}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setResultado({ tipo: data.tipo, filas: data.filas || [] });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -80,7 +80,6 @@ export default function CoordinadorApp({ user }) {
   }
 
   useEffect(() => {
-    cargarDatos(periodo);
     if (periodo) {
       try {
         window.localStorage.setItem(storageKey, periodo);
@@ -88,16 +87,27 @@ export default function CoordinadorApp({ user }) {
         /* localStorage no disponible: no pasa nada, solo no se recuerda */
       }
     }
+    buscar(FILTROS_VACIOS);
+    setFiltros(FILTROS_VACIOS);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [periodo]);
 
-  const catalogoFiltrado = useMemo(() => {
-    const q = busqueda.trim().toLowerCase();
-    if (!q) return catalogo;
-    return catalogo.filter((c) =>
-      [c.asignatura, c.programa, c.plan, c.ciclo].join(" ").toLowerCase().includes(q)
-    );
-  }, [catalogo, busqueda]);
+  function actualizarFiltro(campo, valor) {
+    setFiltros((prev) => ({ ...prev, [campo]: valor }));
+  }
+
+  function onSubmitFiltros(e) {
+    e.preventDefault();
+    buscar(filtros);
+  }
+
+  function limpiarFiltros() {
+    setFiltros(FILTROS_VACIOS);
+    buscar(FILTROS_VACIOS);
+  }
+
+  const hayFiltroActivo = Object.values(filtros).some((v) => v.trim());
+  const esEstudiante = resultado.tipo === "estudiante";
 
   return (
     <div className="min-h-screen">
@@ -118,13 +128,8 @@ export default function CoordinadorApp({ user }) {
         )}
       </TopBar>
 
-      <main className="max-w-6xl mx-auto px-4 py-6 space-y-4">
-        <p className="text-xs text-gray-400 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
-          Estás en modo de solo consulta: puedes ver el catálogo y los grupos de tu facultad, y
-          descargar el Excel, pero no puedes crear, editar ni eliminar información.
-        </p>
-
-        <div className="flex flex-wrap items-end gap-3">
+      <form className="filter-bar" onSubmit={onSubmitFiltros}>
+        <div className="filter-bar-row">
           <div>
             <label className="label">Período</label>
             <select className="input" value={periodo} onChange={(e) => setPeriodo(e.target.value)}>
@@ -136,16 +141,60 @@ export default function CoordinadorApp({ user }) {
               ))}
             </select>
           </div>
-          <div className="flex-1 min-w-[200px]">
-            <label className="label">Buscar asignatura</label>
+          <div className="min-w-[160px]">
+            <label className="label">Cédula docente</label>
             <input
               className="input"
-              placeholder="Nombre de la asignatura, programa o plan..."
-              value={busqueda}
-              onChange={(e) => setBusqueda(e.target.value)}
+              placeholder="Documento..."
+              value={filtros.cedulaDocente}
+              onChange={(e) => actualizarFiltro("cedulaDocente", e.target.value)}
             />
           </div>
+          <div className="min-w-[160px]">
+            <label className="label">Cédula estudiante</label>
+            <input
+              className="input"
+              placeholder="Documento..."
+              value={filtros.cedulaEstudiante}
+              onChange={(e) => actualizarFiltro("cedulaEstudiante", e.target.value)}
+            />
+          </div>
+          <div className="min-w-[140px]">
+            <label className="label">Grupo</label>
+            <input
+              className="input"
+              placeholder="Ej: SEON1-3TS"
+              value={filtros.grupo}
+              onChange={(e) => actualizarFiltro("grupo", e.target.value)}
+            />
+          </div>
+          <div className="min-w-[200px]">
+            <label className="label">Materia</label>
+            <input
+              className="input"
+              placeholder="Nombre de la asignatura..."
+              value={filtros.materia}
+              onChange={(e) => actualizarFiltro("materia", e.target.value)}
+            />
+          </div>
+          <div className="flex gap-2">
+            <button type="submit" className="btn-primary">
+              <IconSearch /> Buscar
+            </button>
+            {hayFiltroActivo && (
+              <button type="button" className="btn-secondary" onClick={limpiarFiltros}>
+                <IconX /> Limpiar
+              </button>
+            )}
+          </div>
         </div>
+      </form>
+
+      <main className="max-w-6xl mx-auto px-4 py-6 space-y-4">
+        <p className="text-xs text-gray-400 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+          Estás en modo de solo consulta: puedes ver el catálogo y los grupos de tu facultad, y
+          descargar el Excel, pero no puedes crear, editar ni eliminar información.
+        </p>
 
         {error && (
           <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
@@ -154,66 +203,65 @@ export default function CoordinadorApp({ user }) {
         )}
 
         {!cargando && periodos.length === 0 && (
-          <div className="card text-center text-gray-500">
+          <div className="empty-state">
             Todavía no hay un catálogo cargado para ningún período en tu facultad.
           </div>
         )}
 
-        {cargando && <p className="text-sm text-gray-500">Cargando...</p>}
+        {cargando && <p className="text-sm text-gray-500">Buscando...</p>}
 
-        <div className="space-y-3">
-          {catalogoFiltrado.map((item) => {
-            const grupos = planeacionPorCatalogo[item.id] || [];
-            return (
-              <div key={item.id} className="card">
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div>
-                    <h3 className="font-semibold text-gray-900">{item.asignatura}</h3>
-                    <p className="text-xs text-gray-500">
-                      {item.programa} · Plan {item.plan} · Ciclo {item.ciclo} · {item.creditos} créditos
-                    </p>
-                  </div>
-                  <span className="badge bg-gray-100 text-gray-500 text-xs">
-                    {grupos.length} grupo{grupos.length === 1 ? "" : "s"}
-                  </span>
-                </div>
+        {!cargando && periodos.length > 0 && resultado.filas.length === 0 && (
+          <div className="empty-state">
+            {hayFiltroActivo
+              ? "Ninguna coincidencia para esos criterios de búsqueda."
+              : "Todavía no hay materias en el catálogo de este período."}
+          </div>
+        )}
 
-                {grupos.length > 0 && (
-                  <div className="mt-3 overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="text-left text-gray-500 border-b">
-                          <th className="py-1 pr-3">Grupo</th>
-                          <th className="py-1 pr-3">Sede</th>
-                          <th className="py-1 pr-3">Jornada</th>
-                          <th className="py-1 pr-3">Días</th>
-                          <th className="py-1 pr-3">Docente</th>
-                          <th className="py-1 pr-3">Estado</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {grupos.map((g) => (
-                          <tr key={g.id} className="border-b last:border-0">
-                            <td className="py-1.5 pr-3">{g.grupo || "—"}</td>
-                            <td className="py-1.5 pr-3">{labelSede(g.modalidad)}</td>
-                            <td className="py-1.5 pr-3">{labelJornada(g.jornada)}</td>
-                            <td className="py-1.5 pr-3">
-                              {(g.horarios || []).map((h) => labelDia(h.dia)).join(", ") || "—"}
-                            </td>
-                            <td className="py-1.5 pr-3">{g.nombre_docente || "—"}</td>
-                            <td className="py-1.5 pr-3">
-                              <EstadoBadge estado={g.estado} />
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+        {!cargando && resultado.filas.length > 0 && (
+          <div className="table-sap-wrap">
+            <table className="table-sap">
+              <thead>
+                <tr>
+                  {esEstudiante && <th>Estudiante</th>}
+                  {esEstudiante && <th>Documento</th>}
+                  <th>Asignatura</th>
+                  <th>Programa · Plan</th>
+                  <th>Grupo</th>
+                  <th>Sede</th>
+                  <th>Jornada</th>
+                  <th>Días</th>
+                  <th>Docente</th>
+                  <th>Estado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {resultado.filas.map((f, i) => (
+                  <tr key={f.id ?? `${f.estudiante_documento || ""}-${f.asignatura}-${i}`}>
+                    {esEstudiante && <td className="font-medium text-gray-900">{f.estudiante_nombre}</td>}
+                    {esEstudiante && <td className="text-gray-500">{f.estudiante_documento}</td>}
+                    <td className="font-medium text-gray-900">{f.asignatura}</td>
+                    <td className="text-gray-500">
+                      {f.programa} {f.plan ? `· ${f.plan}` : ""}
+                    </td>
+                    <td>{f.grupo || "—"}</td>
+                    <td>{labelSede(f.modalidad)}</td>
+                    <td>{labelJornada(f.jornada)}</td>
+                    <td>{(f.horarios || []).map((h) => labelDia(h.dia)).join(", ") || "—"}</td>
+                    <td>{f.nombre_docente || "—"}</td>
+                    <td>
+                      {f.sinProgramar ? (
+                        <span className="badge bg-amber-100 text-amber-700">Sin programar</span>
+                      ) : (
+                        <EstadoBadge estado={f.estado} />
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </main>
     </div>
   );
